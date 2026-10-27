@@ -1,0 +1,313 @@
+.chat-panel {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  flex-direction: column;
+  overflow: hidden;
+  border-left: 1px solid var(--border);
+  background: var(--surface-raised);
+  color: var(--foreground);
+}
+
+.chat-panel-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1rem 0.8rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.chat-panel-header h2 {
+  margin: 0.2rem 0 0;
+  font-size: 0.96rem;
+  letter-spacing: -0.025em;
+}
+
+.chat-panel-header p {
+  margin: 0.3rem 0 0;
+  color: var(--muted-foreground);
+  font-size: 0.7rem;
+  line-height: 1.4;
+}
+
+.chat-panel-kicker {
+  color: var(--data-blue) !important;
+  font-size: 0.58rem !important;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.chat-panel-header-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 0.15rem;
+}
+
+.chat-conversation {
+  min-height: 0;
+  flex: 1;
+}
+
+.chat-conversation [data-slot="conversation-content"] {
+  gap: 0.85rem;
+  padding: 1rem;
+}
+
+.chat-message {
+  max-width: 100%;
+}
+
+.chat-message [data-slot="message-content"] {
+  width: 100%;
+  max-width: 100%;
+  gap: 0.55rem;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.chat-user-text {
+  margin: 0;
+}
+
+
+
+.chat-tool-label {
+  color: var(--muted-foreground);
+  font-size: 0.63rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.chat-tool-error,
+.chat-request-error {
+  margin: 0;
+  color: var(--destructive);
+  font-size: 0.72rem;
+}
+
+
+
+
+/* Stock Suggestions scroll horizontally; the narrow panel wraps them instead. */
+.chat-suggestion-list {
+  width: 100%;
+  flex-wrap: wrap;
+  white-space: normal;
+}
+
+.chat-starters {
+  padding: 0 1rem 0.7rem;
+}
+
+.chat-suggestion {
+  height: auto;
+  min-height: 1.75rem;
+  max-width: 100%;
+  padding: 0.35rem 0.7rem;
+  color: var(--muted-foreground);
+  font-size: 0.67rem;
+  line-height: 1.35;
+  text-align: left;
+  white-space: normal;
+}
+
+.chat-suggestion:hover {
+  border-color: var(--data-blue);
+  color: var(--accent-foreground);
+}
+
+.chat-follow-ups {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.chat-tool-pending {
+  margin: 0;
+  background: linear-gradient(90deg, var(--muted-foreground) 35%, var(--foreground) 50%, var(--muted-foreground) 65%) 0 0 / 300% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  font-size: 0.7rem;
+  animation: chat-shimmer 1.6s linear infinite;
+}
+
+@keyframes chat-shimmer {
+  from { background-position: 100% 0; }
+  to { background-position: 0 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-tool-pending {
+    background: none;
+    color: var(--muted-foreground);
+    animation: none;
+  }
+}
+
+.chat-model-tag {
+  align-self: flex-start;
+  color: var(--muted-foreground);
+  font-size: 0.6rem;
+  letter-spacing: 0.04em;
+}
+
+.chat-model-trigger {
+  height: 1.75rem;
+  padding-inline: 0.5rem;
+  font-size: 0.7rem;
+}
+
+.chat-model-name {
+  min-width: 2.6rem;
+  font-weight: 600;
+}
+
+.chat-model-hint {
+  color: var(--muted-foreground);
+  font-size: 0.7rem;
+}
+
+/* The trigger shows only the model name; hints stay in the open list. */
+.chat-model-trigger .chat-model-hint {
+  display: none;
+}
+
+.chat-panel-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  padding: 0.7rem 1rem 1rem;
+  border-top: 1px solid var(--border);
+}
+
+.chat-prompt {
+  flex: 0 0 auto;
+}
+
+.chat-prompt [data-slot="input-group"] {
+  border-color: var(--border);
+  background: var(--surface-inset);
+}
+
+.chat-prompt [data-slot="input-group-textarea"] {
+  min-height: 2.6rem;
+  padding: 0.65rem 0.7rem;
+  font-size: 0.875rem;
+}
+
+.chat-ready-state {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted-foreground);
+  font-size: 0.63rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 767px) {
+  .chat-panel {
+    width: 100%;
+    min-width: 0;
+    border-left: 0;
+  }
+}
+
+/* Agent thinking: reasoning summaries and data steps */
+.chat-thinking {
+  gap: 0;
+  font-size: 0.7rem;
+}
+
+.chat-thinking > [data-slot="collapsible"] button,
+.chat-thinking [data-slot="collapsible-trigger"] {
+  font-size: 0.7rem;
+}
+
+.chat-thinking [data-slot="collapsible-content"] {
+  margin-top: 0.6rem;
+  padding-left: 0.1rem;
+}
+
+.chat-thinking [data-slot="collapsible-content"] > div {
+  font-size: 0.7rem;
+  line-height: 1.45;
+}
+
+.chat-reasoning-text {
+  color: var(--muted-foreground);
+  font-size: 0.68rem;
+  line-height: 1.5;
+}
+
+.chat-reasoning-text p {
+  margin: 0;
+}
+
+.chat-step-error {
+  color: var(--destructive);
+}
+
+.chat-sql {
+  width: 100%;
+  margin-top: 0.15rem;
+  color: var(--muted-foreground);
+  font-size: 0.66rem;
+}
+
+.chat-sql summary {
+  cursor: pointer;
+  width: fit-content;
+}
+
+.chat-sql pre {
+  max-height: 14rem;
+  margin: 0.3rem 0 0;
+  overflow: auto;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 0.4rem;
+  background: var(--surface-inset);
+  color: var(--foreground);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.66rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.chat-disabled {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 1.25rem 1rem;
+  color: var(--muted-foreground);
+  font-size: 0.78rem;
+}
+
+.chat-disabled strong {
+  color: var(--foreground);
+  font-size: 0.85rem;
+}
+
+.chat-disabled code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.7rem;
+}
+
+
+
+.chat-message-actions {
+  margin-top: -0.2rem;
+  color: var(--muted-foreground);
+}
+
+.chat-message-actions .chat-model-tag {
+  align-self: center;
+  margin-left: 0.2rem;
+}
