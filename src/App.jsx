@@ -676,7 +676,7 @@ function MainContent({ appTitle, theme, setTheme, dive, dives, onSelectDive, onS
     </div>
   );
 
-  const chat = <ChatPanel key={dive.key} dive={dive} state={diveState} ready={frameStatus === "ready"} onClose={() => setChatOpen(false)} />;
+  const chat = <ChatPanel key={dive.key} dive={dive} state={diveState} ready={frameStatus === "ready"} frameStatus={frameStatus} onClose={() => setChatOpen(false)} />;
   const chatSheet = (
     <Sheet open={chatOpen && !wideChat} onOpenChange={setChatOpen}>
       <SheetContent showCloseButton={false} className="chat-sheet" style={{ width: "min(100%,420px)", maxWidth: "100%", gap: 0 }}>

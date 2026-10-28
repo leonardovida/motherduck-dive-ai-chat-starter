@@ -16,6 +16,8 @@ The read-only MotherDuck identity and its data grants are the authoritative acce
 
 Authentication is one shared demo password with signed eight-hour cookies. Production refuses the development fallback. This is not a tenant authentication system. A production application must derive all tenant-specific Dives, resources and data credentials from its authenticated server-side identity. Multiple Dives in the demo are available to every signed-in viewer.
 
+The login limiter counts failed passwords, retains at most 1,000 active client buckets, and rejects new buckets when full until one expires. Forwarded headers are ignored unless the app is on Vercel (`VERCEL=1`, which selects its platform-overwritten `x-forwarded-for`) or `AUTH_TRUSTED_IP_HEADER` names a header a trusted proxy overwrites with one client IP on every request. Next.js route handlers expose no socket. Local development can use one shared failure bucket; successful local sign-ins do not reset its count. Production refuses sign-in when no trusted source or client identity is available. For a multi-user production app, use its authentication and shared rate-limit service.
+
 ## UI and lifecycle
 
 The dashboard retains `useDiveState` values when its embed session renews. Changing the theme creates a new embed session so `app_theme` reaches the Dive. Stale requests are aborted and renewal/retry timers are cleared when a frame unmounts. A load deadline surfaces failed frames instead of leaving a permanent skeleton.

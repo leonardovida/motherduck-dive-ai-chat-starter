@@ -1,3 +1,4 @@
+// Adapted from shadcn/ui (MIT); see THIRD_PARTY_NOTICES.md.
 import { Button as ButtonPrimitive } from "@base-ui/react/button"
 import { cva } from "class-variance-authority";
 import { cn } from "@/lib/utils"

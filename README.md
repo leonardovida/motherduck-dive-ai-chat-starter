@@ -4,6 +4,16 @@
 
 A small Next.js starter for embedded analytics with a streaming AI SQL assistant. It includes a configurable Dive sidebar, light and dark themes, mobile chat, SQL receipts, and server-side credential handling. Bring your own saved Dive and read-only data access.
 
+## Let an agent set it up
+
+Point your coding agent at this repository and say:
+
+> Set up this starter for my MotherDuck Dive and AI chat. Follow AGENTS.md. Discover and configure the resources using my authorized connections. Tell me which secrets to add to my runtime secret manager, then verify the complete browser flow. Keep it local and private.
+
+You supply three credentials in **one local runtime environment**: `OPENAI_API_KEY`, `MOTHERDUCK_EMBED_TOKEN`, and a read-only `MOTHERDUCK_CHAT_TOKEN`. The agent handles the Dive ID, service-account username, database alias, resources and region. If an identity or token needs creating, it uses the approved account workflow. Deployment adds one destination: the host's runtime environment, including generated sign-in secrets.
+
+Start with `npm ci`, then `npm run --silent setup -- --json`. The agent gets missing variable names and next steps, without secret values. See the [agent setup guide](docs/agent-setup.md) for the complete handoff and [AGENTS.md](AGENTS.md) for agent instructions. **GitHub secrets are not required to run the app.**
+
 <details>
 <summary>First-run preview</summary>
 
@@ -43,7 +53,7 @@ Open **http://localhost:3000** and sign in with **`duckdemo`**. This password wo
    ```
 
    The embed token must be authorized to create embed sessions for your organization. It stays on the server; the embedded Dive runs as the named service account.
-4. Restart `npm run dev`. Open **Overview**. The included starter should display a date and three selectable options.
+4. Run `npm run check:setup -- --live` to verify the embed session, then restart `npm run dev`. Open **Overview**. The included starter should display a date and three selectable options.
 
 For a Dive that declares `REQUIRED_DATABASES`, add matching resources to its entry in [`dives.config.mjs`](dives.config.mjs):
 
@@ -63,7 +73,7 @@ MOTHERDUCK_CHAT_TOKEN=your-read-only-data-token
 DIVE_OVERVIEW_CHAT_DATABASE=your-database-or-attached-share-alias
 ```
 
-Open **Chat** after the Dive loads. The assistant can inspect the current Dive state, discover tables, describe columns, and run bounded read-only queries. It streams its answer and shows the SQL used to support it.
+Run `npm run check:setup -- --live` again to verify the database connection and default OpenAI model access. It makes no model generation request and never prints credentials. Open **Chat** after the Dive loads. The assistant can inspect the current Dive state, discover tables, describe columns, and run bounded read-only queries. It streams its answer and shows the SQL used to support it.
 
 The chat queries your configured database; it does not scrape chart pixels or execute SQL through the iframe. Filters reach chat when your Dive stores them with `useDiveState`. The data-free starter can demonstrate selected state, but meaningful data questions require a populated chat database.
 
@@ -121,6 +131,8 @@ One chat answer reuses one lazy Postgres connection across tool calls and closes
 
 Import this repository into a Next.js-compatible host. The application is at the **repository root**. No monorepo root override is required.
 
+Production requires HTTPS, including when testing a production server locally. Use `npm run dev` for the documented HTTP localhost setup.
+
 Set the Dive/chat values above, plus:
 
 ```dotenv
@@ -129,6 +141,8 @@ SESSION_SECRET=a-random-value-of-at-least-32-characters
 ```
 
 Generate a session secret with `openssl rand -hex 32`. Production sign-in refuses to work without both values. Set `MOTHERDUCK_PG_HOST` for your database's region; its default is `pg.us-east-1-aws.motherduck.com`.
+
+Vercel's client-IP header is detected automatically when `VERCEL=1`. On another host, set `AUTH_TRUSTED_IP_HEADER` to a header your trusted proxy overwrites with a single client IP, such as `x-real-ip`. Production sign-in refuses a missing client identity so failed logins cannot lock all viewers into one shared bucket. See [Vercel's request-header contract](https://vercel.com/docs/headers/request-headers#x-forwarded-for).
 
 **GitHub repository secrets do not configure your deployed app.** They are available only to workflows. Add runtime secrets separately through your deployment platform or secret manager. Nothing under `.env.local` is committed.
 
@@ -139,19 +153,24 @@ The included password gate and in-process rate limits are suitable for a shared 
 ```sh
 npm test
 npm run build
+npm run check:setup
 ```
 
+The setup check automatically loads `.env.local` when present, while preserving injected environment values. It reports missing configuration names and exits nonzero for incomplete configuration. Add `-- --live` to create a test embed session, run `SELECT 1` with the chat identity, and check OpenAI model access. It does not change data or account permissions. Placeholder Dives can remain disconnected.
+
 Tests require no live credentials and cover authentication, configuration, embed sessions, SQL guards, request-size bounds, bounded chat history, reader lifecycle, exports, and streamed tool calls against a fake OpenAI endpoint.
+
+See the [end-to-end verification record](docs/verification.md) for the real browser, synthetic data, mobile and production API checks and their limits.
 
 `npm run smoke:openai` performs one minimal real OpenAI request when a key is injected. CI runs tests and a build without secrets. The optional manual **Checks** workflow can run the live smoke check using the repository's `OPENAI_API_KEY` secret; it is disabled by default.
 
 | Symptom | Check |
 | --- | --- |
 | Overview says “Not connected” | Fill the missing env names shown in the UI, then restart. The included starter does not need a share. |
-| Embed creation fails | Verify the saved Dive ID, embedding entitlement, embed-token permission, service account, and data grants. |
+| Embed creation fails | Run `npm run check:setup -- --live`. For HTTP 404, verify the saved Dive ID and exact service-account username, then check access. For 401/403, check token permission, embedding entitlement and service-account access. |
 | Chat is not configured | Set the OpenAI key, chat token, and database env name for the selected Dive. |
 | Chat cannot find a table | Verify the read-only token's grants and the database/share alias; tables are scoped to that database. |
-| Production sign-in is unavailable | Set a non-empty `DEMO_PASSWORD` and a `SESSION_SECRET` of at least 32 characters. |
+| Production sign-in is unavailable | Set `DEMO_PASSWORD`, `SESSION_SECRET` (32+ characters), and a trusted proxy client-IP source. Vercel is detected automatically; other hosts need `AUTH_TRUSTED_IP_HEADER`. |
 | SQL is rejected | Use one supported read-only query. Writes, file readers, external locations, and dynamic SQL are intentionally refused. |
 
 ## Project map
@@ -164,3 +183,7 @@ Tests require no live credentials and cover authentication, configuration, embed
 - `api/`: small testable auth, embed-session, and Dive-list handlers.
 - `lib/`: session handling, SQL guard, bounded request parsing, data tools, and model catalog.
 - `test/`: credential-free regression tests.
+
+## License
+
+Apache-2.0, with the MIT notices for adapted shadcn/ui components preserved in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). See [LICENSE](LICENSE).

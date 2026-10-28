@@ -1,3 +1,4 @@
+// Adapted from shadcn/ui (MIT); see THIRD_PARTY_NOTICES.md.
 import { cn } from "@/lib/utils"
 import { Loader2Icon } from "lucide-react"
 

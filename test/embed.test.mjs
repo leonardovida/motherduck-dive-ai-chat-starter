@@ -59,7 +59,7 @@ test('the upstream request uses server config, sanitized state and the theme', a
       assert.deepEqual(observed.body, {
         username: 'reader',
         version: 7,
-        session_hint: 'embedded-dive-chat-overview',
+        session_name: 'embedded-dive-chat-overview',
         required_resources: [],
         initial_state: { filter: 'a', app_theme: 'dark', app_embedded: true },
       });
@@ -81,6 +81,17 @@ test('upstream failures do not leak details', async () => {
     } finally {
       globalThis.fetch = originalFetch; console.error = log;
     }
+  });
+});
+
+test('embed renewal respects a shorter upstream lifetime', async () => {
+  await withEnv(CONNECTED, async () => {
+    const original = globalThis.fetch;
+    globalThis.fetch = async () => Response.json({ session: 'opaque', expires_in: 120 });
+    try {
+      const res = response(); await embed(request('GET', { url: '/api/embed?dive=overview', headers: signedIn() }), res);
+      assert.equal(res.data.expires_in, 120);
+    } finally { globalThis.fetch = original; }
   });
 });
 

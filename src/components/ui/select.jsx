@@ -1,3 +1,4 @@
+// Adapted from shadcn/ui (MIT); see THIRD_PARTY_NOTICES.md.
 import * as React from "react"
 import { Select as SelectPrimitive } from "@base-ui/react/select"
 import { cn } from "@/lib/utils"

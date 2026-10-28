@@ -107,11 +107,13 @@ const MODEL_NAMES = { luna: "Luna", sol: "Sol", astra: "Astra" };
 const COPY = {
   title: "Chat",
   subtitle: "Ask about the data in this Dive.",
-  waiting: "Open a Dive to start asking questions.",
+  waiting: "Waiting for the Dive to load…",
+  unavailable: "The Dive is unavailable. Retry loading it to start chat.",
+  connect: "Connect this Dive to start chat.",
   empty: "Ask about the data behind this Dive.",
   starters: ["What does this Dive show?", "Which tables can you query?", "Summarise the key numbers."],
   disabledTitle: "Chat isn't configured for this Dive",
-  disabledBody: "Add a chat database and a read-only token for this Dive in dives.config.mjs, and set OPENAI_API_KEY.",
+  disabledBody: "Set OPENAI_API_KEY and the chat token and database variables named for this Dive in dives.config.mjs in your runtime environment.",
   followUps: "Suggested next",
   placeholder: "Ask about this Dive…",
   close: "Close chat",
@@ -354,7 +356,7 @@ function ChatHeader({ onClear, onClose, canClear }) {
   );
 }
 
-export default function ChatPanel({ dive, state, ready = false, onClose }) {
+export default function ChatPanel({ dive, state, ready = false, frameStatus = 'loading', onClose }) {
   if (dive && !dive.chatEnabled) {
     return (
       <aside className="chat-panel" aria-label={COPY.title}>
@@ -366,10 +368,10 @@ export default function ChatPanel({ dive, state, ready = false, onClose }) {
       </aside>
     );
   }
-  return <ChatSession key={dive?.key || "none"} dive={dive} state={state} ready={ready} onClose={onClose} />;
+  return <ChatSession key={dive?.key || "none"} dive={dive} state={state} ready={ready} frameStatus={frameStatus} onClose={onClose} />;
 }
 
-function ChatSession({ dive, state, ready, onClose }) {
+function ChatSession({ dive, state, ready, frameStatus, onClose }) {
   const diveKey = dive?.key || "";
   const [catalog, setCatalog] = useState(null);
   const [model, setModel] = useState(readStoredModel);
@@ -407,7 +409,7 @@ function ChatSession({ dive, state, ready, onClose }) {
   );
   const initialMessages = useMemo(() => readChatHistory(diveKey), [diveKey]);
 
-  const { messages, sendMessage, setMessages, stop, regenerate, status, error } = useChat({ transport, messages: initialMessages });
+  const { messages, sendMessage, setMessages, stop, regenerate, status, error } = useChat({ transport, messages: initialMessages, throttle: 50 });
   useEffect(() => {
     writeChatHistory(diveKey, messages);
   }, [messages, diveKey]);
@@ -418,6 +420,7 @@ function ChatSession({ dive, state, ready, onClose }) {
   }, [stop]);
   const busy = status === "submitted" || status === "streaming";
   const canAsk = ready && Boolean(diveKey);
+  const waiting = frameStatus === 'error' ? COPY.unavailable : frameStatus === 'configuration' ? COPY.connect : COPY.waiting;
   const ask = (text) => {
     const trimmed = String(text || "").trim();
     if (!trimmed || !canAsk || busy) return;
@@ -447,7 +450,7 @@ function ChatSession({ dive, state, ready, onClose }) {
 
       <Conversation className="chat-conversation">
         <ConversationContent data-slot="conversation-content">
-          {!messages.length && <ConversationEmptyState title={canAsk ? COPY.empty : COPY.waiting} description="" />}
+          {!messages.length && <ConversationEmptyState title={canAsk ? COPY.empty : waiting} description="" />}
           {messages.map((message, index) => (
             <ChatMessage key={message.id} message={message} working={busy && index === messages.length - 1} showModel={usedModels.size > 1} />
           ))}
@@ -507,7 +510,7 @@ function ChatSession({ dive, state, ready, onClose }) {
                   </PromptInputSelectContent>
                 </PromptInputSelect>
               ) : (
-                <span className="chat-ready-state">{!canAsk && COPY.waiting}</span>
+                <span className="chat-ready-state">{!canAsk && waiting}</span>
               )}
             </PromptInputTools>
             <PromptInputSubmit aria-label={COPY.send} title={COPY.send} status={status} disabled={!canAsk || busy} />

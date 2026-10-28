@@ -1,3 +1,4 @@
+// Adapted from shadcn/ui (MIT); see THIRD_PARTY_NOTICES.md.
 import * as React from "react"
 import { Input as InputPrimitive } from "@base-ui/react/input"
 import { cn } from "@/lib/utils"

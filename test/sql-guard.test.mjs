@@ -61,6 +61,12 @@ test('writes, multiple statements and external readers are rejected', () => {
   }
 });
 
+test('local Parquet metadata readers are also rejected', () => {
+  for (const name of ['parquet_metadata', 'parquet_schema', 'parquet_file_metadata', 'parquet_kv_metadata']) {
+    for (const fn of [name, `"${name}"`]) assert.throws(() => guardQuery(`SELECT * FROM ${fn}('private.parquet')`), /File and URL readers/);
+  }
+});
+
 test('limit is clamped to the allowed range', () => {
   assert.equal(guardQuery('SELECT 1', 10000).limit, MAX_ROWS);
   assert.equal(guardQuery('SELECT 1', 0).limit, 50);

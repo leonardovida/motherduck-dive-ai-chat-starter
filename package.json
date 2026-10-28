@@ -10,17 +10,19 @@
     "test": "node --test test/*.test.mjs",
     "dev": "next dev",
     "start": "next start",
-    "smoke:openai": "node scripts/smoke-openai.mjs"
+    "smoke:openai": "node scripts/smoke-openai.mjs",
+    "check:setup": "node scripts/check-setup.mjs",
+    "setup": "node scripts/check-setup.mjs --require-chat"
   },
   "dependencies": {
-    "@ai-sdk/openai": "4.0.103",
-    "@ai-sdk/react": "4.0.158",
+    "@ai-sdk/openai": "4.0.104",
+    "@ai-sdk/react": "4.0.159",
     "@base-ui/react": "1.9.0",
     "@fontsource-variable/geist": "5.3.0",
-    "ai": "7.0.154",
+    "ai": "7.0.155",
     "class-variance-authority": "0.7.1",
     "clsx": "2.1.1",
-    "lucide-react": "1.62.0",
+    "lucide-react": "1.63.0",
     "next": "16.4.3",
     "pg": "8.23.1",
     "react": "19.3.1",
@@ -35,7 +37,7 @@
   "description": "Embed MotherDuck Dives with a streaming AI SQL assistant. A configurable Next.js starter.",
   "devDependencies": {
     "@tailwindcss/postcss": "4.3.3",
-    "shadcn": "4.23.0",
     "tailwindcss": "4.3.3"
-  }
+  },
+  "license": "Apache-2.0"
 }

@@ -7,7 +7,7 @@ import { request, response, withEnv } from './helpers.mjs';
 const SECRET = 'unit-test-secret-with-at-least-32-characters';
 let ip = 0;
 // Each call gets its own address so the login throttle never interferes.
-const login = (password, headers = {}) => request('POST', { body: { password }, headers: { 'x-forwarded-for': `10.0.0.${++ip}`, ...headers } });
+const login = (password, headers = {}) => ({ ...request('POST', { body: { password }, headers }), socket: { remoteAddress: `10.0.0.${++ip}` } });
 
 test('without DEMO_PASSWORD, development accepts the default and shows the hint', async () => {
   await withEnv({ NODE_ENV: 'development', DEMO_PASSWORD: undefined, SESSION_SECRET: undefined }, async () => {
@@ -39,7 +39,7 @@ test('production refuses sign-in until DEMO_PASSWORD and a long SESSION_SECRET a
 });
 
 test('production signs in with the configured password only', async () => {
-  await withEnv({ NODE_ENV: 'production', DEMO_PASSWORD: 'correct horse', SESSION_SECRET: SECRET, APP_TITLE: 'Acme demo' }, async () => {
+  await withEnv({ NODE_ENV: 'production', DEMO_PASSWORD: 'correct horse', SESSION_SECRET: SECRET, APP_TITLE: 'Acme demo', AUTH_TRUSTED_IP_HEADER: 'x-real-ip' }, async () => {
     const denied = response(); await auth(login(DEV_PASSWORD), denied);
     assert.equal(denied.statusCode, 401);
     assert.equal(denied.headers['Set-Cookie'], undefined);
@@ -49,6 +49,15 @@ test('production signs in with the configured password only', async () => {
     assert.equal(validSession(value, SECRET), true);
     const status = response(); await auth(request('GET', { headers: { cookie: `${COOKIE}=${value}` } }), status);
     assert.deepEqual(status.data, { authenticated: true, appTitle: 'Acme demo' });
+  });
+});
+
+test('production cannot silently fall back to a shared client bucket', async () => {
+  await withEnv({ NODE_ENV: 'production', VERCEL: '1', AUTH_TRUSTED_IP_HEADER: undefined, DEMO_PASSWORD: 'correct', SESSION_SECRET: SECRET }, async () => {
+    const missing = response(); await auth(request('POST', { body: { password: 'correct' } }), missing);
+    assert.equal(missing.statusCode, 503);
+    const valid = response(); await auth(request('POST', { body: { password: 'correct' }, headers: { 'x-forwarded-for': '198.51.100.90' } }), valid);
+    assert.equal(valid.statusCode, 200);
   });
 });
 
@@ -70,6 +79,27 @@ test('repeated failures are throttled', async () => {
     let last;
     for (let i = 0; i < 11; i++) { last = response(); await auth(request('POST', { body: { password: 'wrong' }, headers }), last); }
     assert.equal(last.statusCode, 429);
+  });
+});
+
+test('rotating untrusted forwarded headers cannot bypass failed-password throttling', async () => {
+  await withEnv({ NODE_ENV: 'development', DEMO_PASSWORD: undefined, AUTH_TRUSTED_IP_HEADER: undefined }, async () => {
+    let res;
+    for (let i = 0; i < 11; i++) {
+      res = response();
+      await auth({ ...request('POST', { body: { password: 'wrong' }, headers: { 'x-forwarded-for': `198.51.100.${i}` } }), socket: { remoteAddress: '192.0.2.60' } }, res);
+    }
+    assert.equal(res.statusCode, 429);
+  });
+});
+
+test('successful sign-ins do not consume the failed-password limit', async () => {
+  await withEnv({ NODE_ENV: 'development', DEMO_PASSWORD: undefined }, async () => {
+    for (let i = 0; i < 20; i++) {
+      const res = response();
+      await auth({ ...request('POST', { body: { password: DEV_PASSWORD } }), socket: { remoteAddress: '192.0.2.61' } }, res);
+      assert.equal(res.statusCode, 200);
+    }
   });
 });
 

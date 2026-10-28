@@ -1,3 +1,5 @@
+// Adapted from Vercel AI Elements. Modified for this starter.
+// Copyright 2023 Vercel, Inc. Apache-2.0; see LICENSE and THIRD_PARTY_NOTICES.md.
 "use client";;
 import { Button } from "@/components/ui/button";
 import {

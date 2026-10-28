@@ -2,7 +2,7 @@ import { authenticated, readBody, sameOrigin, sanitizeState, send } from '../lib
 import { getDive } from '../lib/dives.mjs';
 
 // Creates a short-lived MotherDuck embed session for one configured Dive. The browser
-// names a Dive key only; the Dive id, service account and shares stay on the server.
+// names a Dive key only; service-account credentials and share URLs stay on the server.
 export default async function handler(request, response) {
   if (!authenticated(request)) return send(response, 401, { error: 'authentication_required' });
   if (!['GET', 'POST'].includes(request.method)) return send(response, 405, { error: 'method_not_allowed' });
@@ -24,7 +24,7 @@ export default async function handler(request, response) {
       body: JSON.stringify({
         username: dive.username,
         ...(dive.version ? { version: dive.version } : {}),
-        session_hint: `embedded-dive-chat-${dive.key}`,
+        session_name: `embedded-dive-chat-${dive.key}`,
         required_resources: dive.resources,
         initial_state: { ...sanitizeState(body?.state), app_theme: theme, app_embedded: true },
       }),
@@ -36,7 +36,10 @@ export default async function handler(request, response) {
     }
     const result = await upstream.json();
     if (typeof result.session !== 'string' || !result.session) return send(response, 502, { error: 'embed_unavailable' });
-    return send(response, 200, { session: result.session, expires_in: 86400 });
+    // The current REST contract exposes only `session`; use its documented 24h
+    // lifetime unless a future response supplies an explicit bounded expiry.
+    const expiresIn = Number(result.expires_in);
+    return send(response, 200, { session: result.session, expires_in: Number.isFinite(expiresIn) && expiresIn > 0 ? Math.min(expiresIn, 86400) : 86400 });
   } catch (error) {
     console.error('embed_session_failed', { dive: dive.key, reason: error?.name === 'TimeoutError' ? 'timeout' : 'connection' });
     return send(response, 502, { error: 'embed_unavailable' });

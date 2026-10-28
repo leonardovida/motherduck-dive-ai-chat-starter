@@ -1,3 +1,4 @@
+// Adapted from shadcn/ui (MIT); see THIRD_PARTY_NOTICES.md.
 "use client"
 
 import { Tooltip as TooltipPrimitive } from "@base-ui/react/tooltip"

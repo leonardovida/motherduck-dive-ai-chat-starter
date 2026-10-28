@@ -1,3 +1,4 @@
+// Adapted from shadcn/ui (MIT); see THIRD_PARTY_NOTICES.md.
 "use client"
 
 import { Collapsible as CollapsiblePrimitive } from "@base-ui/react/collapsible"
