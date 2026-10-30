@@ -54,12 +54,15 @@ import "./chat-panel.css";
 import { prepareChatHistory } from "@/lib/chat-history.mjs";
 
 const SESSION_CHAT_HISTORY = new Map();
+// One saved-conversation id per Dive for this browser session; Clear starts a new one.
+const SESSION_CONVERSATIONS = new Map();
 const MAX_SESSION_MESSAGES = 24;
 const MODEL_STORAGE_KEY = "dive_app_chat_model";
 let catalogRequest = null;
 
 export function clearChatHistory() {
   SESSION_CHAT_HISTORY.clear();
+  SESSION_CONVERSATIONS.clear();
   catalogRequest = null;
 }
 
@@ -102,7 +105,12 @@ function writeStoredModel(value) {
   }
 }
 
-const MODEL_NAMES = { luna: "Luna", sol: "Sol", astra: "Astra" };
+const MODEL_NAMES = { auto: "Auto", luna: "Luna", sol: "Sol", astra: "Astra" };
+
+function conversationIdFor(key) {
+  if (!SESSION_CONVERSATIONS.has(key)) SESSION_CONVERSATIONS.set(key, globalThis.crypto?.randomUUID?.() ?? `c${Date.now()}${Math.random().toString(36).slice(2)}`);
+  return SESSION_CONVERSATIONS.get(key);
+}
 
 const COPY = {
   title: "Chat",
@@ -113,7 +121,14 @@ const COPY = {
   empty: "Ask about the data behind this Dive.",
   starters: ["What does this Dive show?", "Which tables can you query?", "Summarise the key numbers."],
   disabledTitle: "Chat isn't configured for this Dive",
-  disabledBody: "Set OPENAI_API_KEY and the chat token and database variables named for this Dive in dives.config.mjs in your runtime environment.",
+  disabledBody: "Set OPENAI_API_KEY or ANTHROPIC_API_KEY, plus the chat token and database variables named for this Dive in dives.config.mjs, in your runtime environment.",
+  deniedTitle: "Chat isn't included in your access",
+  deniedBody: "Ask an administrator to turn on chat for your account.",
+  recording: "Conversations are saved and can be reviewed by administrators.",
+  demoRecording: "This is a public demo. Conversations are saved and visible to every visitor.",
+  demoRetention: "This is a public demo. Conversations are visible to every visitor and deleted after {days} days.",
+  demoUnavailable: "This is not available in a public demo.",
+  routed: "Auto · {model}",
   followUps: "Suggested next",
   placeholder: "Ask about this Dive…",
   close: "Close chat",
@@ -149,7 +164,7 @@ const COPY = {
   explored: ["1 step", "{n} steps"],
   copy: "Copy answer",
   copied: "Copied",
-  modelHint: { luna: "Fast", sol: "Balanced", astra: "Deep analysis" },
+  modelHint: { auto: "Picks per question", luna: "Fast", sol: "Balanced", astra: "Deep analysis" },
 };
 
 function messageText(message) {
@@ -309,9 +324,17 @@ function CopyAnswer({ text }) {
   );
 }
 
+// The tier of the latest answer, so a short follow-up can keep it when routing automatically.
+function previousTier(messages) {
+  const tier = messages.findLast((message) => message.role === "assistant" && message.metadata?.model)?.metadata.model;
+  return ["luna", "sol", "astra"].includes(tier) ? tier : undefined;
+}
+
 function ChatMessage({ message, working, showModel }) {
   const text = messageText(message);
-  const model = MODEL_NAMES[message.metadata?.model];
+  const tier = MODEL_NAMES[message.metadata?.model];
+  // Auto answers always say which tier answered and why; manual picks only when several were used.
+  const model = message.metadata?.auto && tier ? COPY.routed.replace("{model}", tier) : showModel ? tier : null;
   if (message.role !== "assistant") {
     return (
       <Message from={message.role} className="chat-message">
@@ -327,7 +350,7 @@ function ChatMessage({ message, working, showModel }) {
         {text && !working && (
           <MessageActions className="chat-message-actions">
             <CopyAnswer text={text} />
-            {showModel && model && <span className="chat-model-tag">{model}</span>}
+            {model && <span className="chat-model-tag" title={message.metadata?.routeReason || undefined}>{model}</span>}
           </MessageActions>
         )}
       </MessageContent>
@@ -362,8 +385,8 @@ export default function ChatPanel({ dive, state, ready = false, frameStatus = 'l
       <aside className="chat-panel" aria-label={COPY.title}>
         <ChatHeader onClose={onClose} />
         <div className="chat-disabled" role="status">
-          <strong>{COPY.disabledTitle}</strong>
-          <span>{COPY.disabledBody}</span>
+          <strong>{dive.chatDenied ? COPY.deniedTitle : COPY.disabledTitle}</strong>
+          <span>{dive.chatDenied ? COPY.deniedBody : COPY.disabledBody}</span>
         </div>
       </aside>
     );
@@ -377,6 +400,7 @@ function ChatSession({ dive, state, ready, frameStatus, onClose }) {
   const [model, setModel] = useState(readStoredModel);
   const latestProps = useRef({ diveKey, state, model });
   latestProps.current = { diveKey, state, model };
+  const conversationId = useRef(conversationIdFor(diveKey));
 
   useEffect(() => {
     let active = true;
@@ -401,6 +425,8 @@ function ChatSession({ dive, state, ready, frameStatus, onClose }) {
           dive: latest.diveKey,
           state: latest.state || {},
           ...(latest.model ? { model: latest.model } : {}),
+          conversationId: conversationId.current,
+          ...(previousTier(messages) ? { previousModel: previousTier(messages) } : {}),
           messages: prepareChatHistory(messages),
         } };
       },
@@ -412,6 +438,12 @@ function ChatSession({ dive, state, ready, frameStatus, onClose }) {
   const { messages, sendMessage, setMessages, stop, regenerate, status, error } = useChat({ transport, messages: initialMessages, throttle: 50 });
   useEffect(() => {
     writeChatHistory(diveKey, messages);
+    // The server may start a new saved conversation (for example after a retention purge).
+    const saved = messages.findLast((message) => message.metadata?.conversationId)?.metadata.conversationId;
+    if (saved && saved !== conversationId.current) {
+      conversationId.current = saved;
+      SESSION_CONVERSATIONS.set(diveKey, saved);
+    }
   }, [messages, diveKey]);
   useEffect(() => () => {
     // Closing or moving the panel keeps the session history, but an in-flight
@@ -429,6 +461,8 @@ function ChatSession({ dive, state, ready, frameStatus, onClose }) {
   const clear = () => {
     if (busy) stop();
     setMessages([]);
+    SESSION_CONVERSATIONS.delete(diveKey);
+    conversationId.current = conversationIdFor(diveKey);
   };
   const chooseModel = (value) => {
     if (!catalog?.models.includes(value)) return;
@@ -442,6 +476,9 @@ function ChatSession({ dive, state, ready, frameStatus, onClose }) {
   const starters = dive?.starters?.length ? dive.starters : COPY.starters;
   const usedModels = new Set(messages.map((message) => message.metadata?.model).filter(Boolean));
   const modelItems = Object.fromEntries((catalog?.models || []).map((key) => [key, MODEL_NAMES[key] || key]));
+  // A public demo lists the tiers it switched off, greyed out, so visitors see what exists.
+  const unavailable = Array.isArray(catalog?.unavailable) ? catalog.unavailable : [];
+  const recordingNotice = !catalog?.recording ? "" : !catalog.publicDemo ? COPY.recording : catalog.retentionDays ? COPY.demoRetention.replace("{days}", catalog.retentionDays) : COPY.demoRecording;
   const rateLimited = String(error?.message || "").includes("chat_rate_limited");
 
   return (
@@ -455,7 +492,7 @@ function ChatSession({ dive, state, ready, frameStatus, onClose }) {
             <ChatMessage key={message.id} message={message} working={busy && index === messages.length - 1} showModel={usedModels.size > 1} />
           ))}
           {awaitingFirstToken && <p className="chat-tool-pending" role="status">{COPY.thinking}</p>}
-          {error && <p className="chat-request-error" role="alert">{rateLimited ? COPY.rateLimited : COPY.error}</p>}
+          {error && <p className="chat-request-error" role="alert">{rateLimited ? COPY.rateLimited : String(error?.message || "").includes("chat_not_allowed") ? COPY.deniedBody : COPY.error}</p>}
           {followUps.length > 0 && canAsk && (
             <div className="chat-follow-ups">
               <span className="chat-tool-label">{COPY.followUps}</span>
@@ -495,16 +532,22 @@ function ChatSession({ dive, state, ready, frameStatus, onClose }) {
           </PromptInputBody>
           <PromptInputFooter>
             <PromptInputTools>
-              {catalog?.models.length > 1 ? (
+              {catalog?.models.length + unavailable.length > 1 ? (
                 <PromptInputSelect items={modelItems} value={model} onValueChange={chooseModel} disabled={busy}>
                   <PromptInputSelectTrigger size="sm" className="chat-model-trigger" aria-label={COPY.model}>
                     <PromptInputSelectValue />
                   </PromptInputSelectTrigger>
-                  <PromptInputSelectContent>
+                  <PromptInputSelectContent className={unavailable.length ? "w-max max-w-[calc(100vw-2rem)]" : undefined}>
                     {catalog.models.map((key) => (
                       <PromptInputSelectItem key={key} value={key}>
                         <span className="chat-model-name">{MODEL_NAMES[key] || key}</span>
                         <span className="chat-model-hint">{COPY.modelHint[key]}</span>
+                      </PromptInputSelectItem>
+                    ))}
+                    {unavailable.map((key) => (
+                      <PromptInputSelectItem key={key} value={key} disabled>
+                        <span className="chat-model-name">{MODEL_NAMES[key] || key}</span>
+                        <span className="chat-model-hint">{COPY.demoUnavailable}</span>
                       </PromptInputSelectItem>
                     ))}
                   </PromptInputSelectContent>
@@ -516,6 +559,7 @@ function ChatSession({ dive, state, ready, frameStatus, onClose }) {
             <PromptInputSubmit aria-label={COPY.send} title={COPY.send} status={status} disabled={!canAsk || busy} />
           </PromptInputFooter>
         </PromptInput>
+        {recordingNotice && <p className="chat-recording-notice">{recordingNotice}</p>}
       </div>
     </aside>
   );

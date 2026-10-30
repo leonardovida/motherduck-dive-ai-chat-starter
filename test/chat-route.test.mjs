@@ -57,7 +57,7 @@ const base = { dive: 'overview', state: { example_choice: 'Second' }, messages: 
 test('the model catalog requires a session', async () => {
   assert.equal((await GET(new Request('https://demo.test/api/chat'))).status, 401);
   const catalog = await (await GET(new Request('https://demo.test/api/chat', { headers }))).json();
-  assert.deepEqual(catalog, { models: ['luna', 'sol', 'astra'], defaultModel: 'luna' });
+  assert.deepEqual(catalog, { models: ['auto', 'luna', 'sol', 'astra'], defaultModel: 'luna', recording: false });
 });
 
 test('bad requests fail before any model call', async () => {
@@ -78,7 +78,7 @@ test('a tool step and an answer stream in order, then follow-ups and one finish'
   const chunks = (await response.text()).split('\n').filter(line => line.startsWith('data: ') && line !== 'data: [DONE]').map(line => JSON.parse(line.slice(6)));
   const types = chunks.map(chunk => chunk.type);
   assert.equal(types[0], 'start');
-  assert.deepEqual(chunks[0].messageMetadata, { model: 'sol' });
+  assert.deepEqual(chunks[0].messageMetadata, { model: 'sol', auto: false });
   const output = chunks.find(chunk => chunk.type === 'tool-output-available');
   assert.deepEqual(output.output, { dive: 'Overview', state: { example_choice: 'Second' } });
   assert.equal(chunks.filter(chunk => chunk.type === 'text-delta').map(chunk => chunk.delta).join(''), 'The Dive shows the Second option.');
@@ -96,4 +96,16 @@ test('a tool step and an answer stream in order, then follow-ups and one finish'
   assert.ok(second.input.some(item => item.type === 'function_call_output'));
   assert.equal(followUp.model, 'gpt-6-luna');
   assert.equal(followUp.text?.format?.type, 'json_schema');
+});
+
+test('auto routes a schema lookup to the fastest tier and reports why', async () => {
+  seen.length = 0;
+  const response = await post({ ...base, model: 'auto', messages: [{ id: 'u1', role: 'user', parts: [{ type: 'text', text: 'Which tables can you query?' }] }] });
+  assert.equal(response.status, 200);
+  const chunks = (await response.text()).split('\n').filter(line => line.startsWith('data: ') && line !== 'data: [DONE]').map(line => JSON.parse(line.slice(6)));
+  assert.equal(chunks[0].messageMetadata.model, 'luna');
+  assert.equal(chunks[0].messageMetadata.auto, true);
+  assert.match(chunks[0].messageMetadata.routeReason, /^rules: /);
+  assert.equal(seen[0].model, 'gpt-6-luna');
+  assert.equal(seen[0].reasoning?.effort, 'low');
 });
