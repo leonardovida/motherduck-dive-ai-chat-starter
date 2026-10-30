@@ -20,6 +20,21 @@ When the user asks you to set up or adapt this repository, own the setup through
 - GitHub Actions secrets configure workflows only. Do not instruct users to put app runtime secrets there. Do not add a deployment service or another API proxy just for setup.
 - Do not commit, push, publish, deploy, make the repository public or contact anyone unless the user explicitly requests that action. A request to run locally is enough to install dependencies, edit the local app and test it.
 
+## Settings reference
+
+[docs/configuration.md](docs/configuration.md) explains every setting in plain language and says where each value comes from. Quote it, or link to it, when you tell a user which values to add.
+
+## Upgrade a copy to a newer template version
+
+When a user asks you to upgrade to a template version such as `v0.2.0`:
+
+1. Read `CHANGELOG.md` and every `release-notes/v*.md` between the copy's version (`version` in `package.json`) and the target version. Pay most attention to the **Upgrading** and **Compatibility** sections.
+2. Fetch the tag from `https://github.com/leonardovida/motherduck-dive-ai-chat-starter.git` and merge it, or cherry-pick from it, on a new branch. Keep the user's Dives, `dives.config.mjs` entries, branding and settings.
+3. Apply any renamed or new settings in the user's secret manager or host, by name only.
+4. Run the checks and the browser acceptance checks below, then report what changed.
+
+Maintainers who cut releases follow [docs/releasing.md](docs/releasing.md).
+
 ## Acceptance checks
 
 Use a browser, rather than treating a build or `configurationReady` as success:
