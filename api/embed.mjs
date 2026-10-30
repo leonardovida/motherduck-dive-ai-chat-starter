@@ -1,10 +1,12 @@
-import { authenticated, readBody, sameOrigin, sanitizeState, send } from '../lib/security.mjs';
+import { readBody, sameOrigin, sanitizeState, send } from '../lib/security.mjs';
+import { canSeeDive, getViewer } from '../lib/viewer.mjs';
 import { getDive } from '../lib/dives.mjs';
 
 // Creates a short-lived MotherDuck embed session for one configured Dive. The browser
 // names a Dive key only; service-account credentials and share URLs stay on the server.
 export default async function handler(request, response) {
-  if (!authenticated(request)) return send(response, 401, { error: 'authentication_required' });
+  const viewer = await getViewer(request.headers, process.env, undefined, { fresh: true });
+  if (!viewer) return send(response, 401, { error: 'authentication_required' });
   if (!['GET', 'POST'].includes(request.method)) return send(response, 405, { error: 'method_not_allowed' });
   let body = {};
   if (request.method === 'POST') {
@@ -13,7 +15,7 @@ export default async function handler(request, response) {
   }
   const query = new URL(request.url, 'https://placeholder.invalid').searchParams;
   const dive = getDive(String(body?.dive || query.get('dive') || ''));
-  if (!dive) return send(response, 400, { error: 'invalid_dive' });
+  if (!dive || !canSeeDive(viewer, dive.key)) return send(response, 400, { error: 'invalid_dive' });
   const theme = body?.theme || query.get('theme') || 'light';
   if (!['dark', 'light'].includes(theme)) return send(response, 400, { error: 'invalid_theme' });
   if (!dive.connected) return send(response, 503, { error: 'embedding_not_configured', missing: dive.missing });

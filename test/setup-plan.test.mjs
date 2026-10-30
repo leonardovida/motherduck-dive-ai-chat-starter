@@ -95,3 +95,15 @@ test('invalid configuration imports produce a redacted JSON error rather than a 
     assert.equal(result.stderr.includes(' at '), false);
   } finally { rmSync(cwd, { recursive: true, force: true }); }
 });
+
+test('accounts mode and Anthropic change the requirements an agent is asked for', () => {
+  const anthropic = setupPlan({ env: { ...env, OPENAI_API_KEY: '', ANTHROPIC_API_KEY: 'private-anthropic' } });
+  assert.ok(anthropic.requirements.some(x => x.name === 'ANTHROPIC_API_KEY' && x.present));
+  assert.ok(!anthropic.requirements.some(x => x.name === 'OPENAI_API_KEY'));
+  const accounts = setupPlan({ env: { ...env, MOTHERDUCK_APP_TOKEN: 'private-app' }, production: true });
+  assert.equal(accounts.signIn, 'accounts');
+  assert.ok(!accounts.requirements.some(x => x.name === 'DEMO_PASSWORD'));
+  assert.deepEqual(accounts.blockers[0].names, ['SESSION_SECRET', 'APP_URL', 'AUTH_TRUSTED_IP_HEADER']);
+  assert.match(accounts.nextCommands[0], /db:migrate/);
+  assert.equal(setupPlan({ env: { ...env, MOTHERDUCK_APP_TOKEN: 'private-app', SESSION_SECRET: 'x'.repeat(32), VERCEL: '1' }, production: true }).configurationReady, true);
+});
