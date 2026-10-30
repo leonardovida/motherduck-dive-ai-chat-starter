@@ -4,6 +4,7 @@ import { createFailureLimiter, loginClientKey, trustedIPHeader } from '../lib/lo
 import { accountsEnabled, publicSsoProviders } from '../lib/auth.mjs';
 import { getViewer, publicViewer } from '../lib/viewer.mjs';
 import { recordingEnabled } from '../lib/conversations.mjs';
+import { publicDemo } from '../lib/public-demo.mjs';
 
 const attempts = createFailureLimiter();
 
@@ -14,7 +15,7 @@ export default async function handler(request, response) {
     if (accountsEnabled()) {
       // Accounts mode: sign-in happens through Better Auth at /api/account; this reports the result.
       const viewer = await getViewer(request.headers);
-      return send(response, 200, { mode: 'accounts', authenticated: Boolean(viewer), appTitle: appTitle(), sso: publicSsoProviders(), ...(viewer ? { user: publicViewer(viewer), recording: recordingEnabled() } : {}) });
+      return send(response, 200, { mode: 'accounts', authenticated: Boolean(viewer), appTitle: appTitle(), sso: publicSsoProviders(), ...(publicDemo() ? { publicDemo: true } : {}), ...(viewer ? { user: publicViewer(viewer), recording: recordingEnabled() } : {}) });
     }
     return send(response, 200, { mode: 'password', authenticated: authenticated(request), appTitle: appTitle(), ...(usingDevPassword() ? { devPassword: DEV_PASSWORD } : {}) });
   }

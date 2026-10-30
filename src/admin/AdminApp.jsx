@@ -65,6 +65,9 @@ const COPY = {
   exportJson: "Export JSON",
   loadMore: "Load more",
   refresh: "Refresh",
+  demoTitle: "Public demo",
+  demoBody: "Every screen is open to explore. Changes are switched off, so the demo stays the same for every visitor.",
+  demoUnavailable: "This is not available in a public demo.",
 };
 const fill = (template, values) => String(template).replace(/\{(\w+)\}/g, (_, key) => String(values[key] ?? ""));
 const plural = ([one, many], n) => fill(n === 1 ? one : many, { n });
@@ -85,6 +88,14 @@ const randomPassword = () => {
   const bytes = crypto.getRandomValues(new Uint8Array(18));
   return btoa(String.fromCharCode(...bytes)).replace(/[+/=]/g, "").slice(0, 20);
 };
+
+// In a public demo every change stays visible but switched off, with the reason on hover.
+const ReadOnly = React.createContext("");
+function WriteButton({ disabled, ...props }) {
+  const reason = React.useContext(ReadOnly);
+  const button = <Button {...props} disabled={Boolean(reason) || disabled} />;
+  return reason ? <span title={reason} className="inline-flex">{button}</span> : button;
+}
 
 function Notice({ message, tone = "muted" }) {
   if (!message) return null;
@@ -156,7 +167,7 @@ function CreateUser({ dives, onCreated }) {
           </div>
           <AccessEditor dives={dives} value={form.access} onChange={access => set("access", access)} />
           <div className="flex items-center gap-3 md:col-span-2">
-            <Button type="submit" disabled={state.busy}>{state.busy ? <Spinner data-icon="inline-start" /> : <UserPlus data-icon="inline-start" aria-hidden="true" />}{state.busy ? COPY.creating : COPY.create}</Button>
+            <WriteButton type="submit" disabled={state.busy}>{state.busy ? <Spinner data-icon="inline-start" /> : <UserPlus data-icon="inline-start" aria-hidden="true" />}{state.busy ? COPY.creating : COPY.create}</WriteButton>
             <Notice message={state.message} tone={state.tone} />
           </div>
         </form>
@@ -188,25 +199,25 @@ function UserRow({ user, dives, self, onChanged }) {
         <span className="ml-auto flex flex-wrap gap-1">
           <Button size="sm" variant="ghost" onClick={() => setMode(mode === "password" ? null : "password")}><KeyRound data-icon="inline-start" aria-hidden="true" />{COPY.resetPassword}</Button>
           <Button size="sm" variant="ghost" onClick={() => setMode(mode === "access" ? null : "access")}>{COPY.editAccess}</Button>
-          {!self && <Button size="sm" variant="ghost" disabled={state.busy} onClick={() => run(() => unwrap(authClient.admin.setRole({ userId: user.id, role: isAdmin ? "user" : "admin" })))}><ShieldCheck data-icon="inline-start" aria-hidden="true" />{isAdmin ? COPY.makeViewer : COPY.makeAdmin}</Button>}
-          {!self && <Button size="sm" variant="ghost" disabled={state.busy} onClick={() => run(() => unwrap(user.banned ? authClient.admin.unbanUser({ userId: user.id }) : authClient.admin.banUser({ userId: user.id })))}>{user.banned ? <Check data-icon="inline-start" aria-hidden="true" /> : <Ban data-icon="inline-start" aria-hidden="true" />}{user.banned ? COPY.enable : COPY.disable}</Button>}
+          {!self && <WriteButton size="sm" variant="ghost" disabled={state.busy} onClick={() => run(() => unwrap(authClient.admin.setRole({ userId: user.id, role: isAdmin ? "user" : "admin" })))}><ShieldCheck data-icon="inline-start" aria-hidden="true" />{isAdmin ? COPY.makeViewer : COPY.makeAdmin}</WriteButton>}
+          {!self && <WriteButton size="sm" variant="ghost" disabled={state.busy} onClick={() => run(() => unwrap(user.banned ? authClient.admin.unbanUser({ userId: user.id }) : authClient.admin.banUser({ userId: user.id })))}>{user.banned ? <Check data-icon="inline-start" aria-hidden="true" /> : <Ban data-icon="inline-start" aria-hidden="true" />}{user.banned ? COPY.enable : COPY.disable}</WriteButton>}
           {!self && (mode === "remove"
             ? <Button size="sm" variant="destructive" disabled={state.busy} onClick={() => run(() => unwrap(authClient.admin.removeUser({ userId: user.id })))}><Trash2 data-icon="inline-start" aria-hidden="true" />{COPY.confirmRemove}</Button>
-            : <Button size="sm" variant="ghost" onClick={() => setMode("remove")}><Trash2 data-icon="inline-start" aria-hidden="true" />{COPY.remove}</Button>)}
+            : <WriteButton size="sm" variant="ghost" onClick={() => setMode("remove")}><Trash2 data-icon="inline-start" aria-hidden="true" />{COPY.remove}</WriteButton>)}
         </span>
       </div>
       {mode === "password" && (
         <form className="flex flex-wrap items-center gap-2" onSubmit={event => { event.preventDefault(); if (password.length >= 12) run(() => unwrap(authClient.admin.setUserPassword({ userId: user.id, newPassword: password }))); }}>
           <Input className="max-w-xs" aria-label={COPY.password} value={password} onChange={e => setPassword(e.target.value)} autoComplete="new-password" spellCheck={false} placeholder={COPY.password} />
           <Button type="button" variant="outline" size="sm" onClick={() => setPassword(randomPassword())}>{COPY.generate}</Button>
-          <Button type="submit" size="sm" disabled={state.busy || password.length < 12}>{COPY.save}</Button>
+          <WriteButton type="submit" size="sm" disabled={state.busy || password.length < 12}>{COPY.save}</WriteButton>
           <Button type="button" variant="ghost" size="sm" onClick={() => setMode(null)}>{COPY.cancel}</Button>
         </form>
       )}
       {mode === "access" && (
         <div className="grid gap-3">
           <AccessEditor dives={dives} value={access} onChange={setAccess} />
-          <div className="flex gap-2"><Button size="sm" disabled={state.busy} onClick={() => run(() => saveAccess(user.id, access))}>{COPY.save}</Button><Button size="sm" variant="ghost" onClick={() => { setAccess(accessOf(user)); setMode(null); }}>{COPY.cancel}</Button></div>
+          <div className="flex gap-2"><WriteButton size="sm" disabled={state.busy} onClick={() => run(() => saveAccess(user.id, access))}>{COPY.save}</WriteButton><Button size="sm" variant="ghost" onClick={() => { setAccess(accessOf(user)); setMode(null); }}>{COPY.cancel}</Button></div>
         </div>
       )}
       <Notice message={state.message} tone="error" />
@@ -257,7 +268,7 @@ function ConversationDetail({ id, onDeleted }) {
         <Button size="sm" variant="outline" onClick={exportJson}><Download data-icon="inline-start" aria-hidden="true" />{COPY.exportJson}</Button>
         {confirming
           ? <Button size="sm" variant="destructive" onClick={remove}><Trash2 data-icon="inline-start" aria-hidden="true" />{COPY.confirmRemove}</Button>
-          : <Button size="sm" variant="ghost" onClick={() => setConfirming(true)}><Trash2 data-icon="inline-start" aria-hidden="true" />{COPY.remove}</Button>}
+          : <WriteButton size="sm" variant="ghost" onClick={() => setConfirming(true)}><Trash2 data-icon="inline-start" aria-hidden="true" />{COPY.remove}</WriteButton>}
       </div>
       <ol className="grid gap-3">
         {conversation.messages.map(message => (
@@ -367,7 +378,7 @@ export default function AdminApp() {
         const [{ dives: list }, session] = await Promise.all([api("/api/dives"), unwrap(authClient.getSession())]);
         setDives(list || []);
         await loadUsers();
-        setStatus({ state: "ready", me: session?.user });
+        setStatus({ state: "ready", me: session?.user, demo: Boolean(auth.publicDemo) });
       } catch (error) { setStatus({ state: "error", message: error.message }); }
     })();
   }, [loadUsers]);
@@ -385,12 +396,15 @@ export default function AdminApp() {
           </nav>
         )}
       </header>
+      <ReadOnly.Provider value={status.demo ? COPY.demoUnavailable : ""}>
       <main className="mx-auto grid max-w-6xl gap-6 px-4 py-6">
         {status.state === "loading" && <Spinner />}
+        {status.demo && <Card><CardHeader><CardTitle>{COPY.demoTitle}</CardTitle><CardDescription>{COPY.demoBody}</CardDescription></CardHeader></Card>}
         {message && <Card><CardHeader><CardTitle>{message[0]}</CardTitle><CardDescription>{message[1]}</CardDescription></CardHeader>{status.state === "signin" && <CardContent><Button nativeButton={false} render={<a href="/" />}>{COPY.back}</Button></CardContent>}</Card>}
         {status.state === "ready" && tab === "users" && <UsersTab users={users} dives={dives} me={status.me} reload={loadUsers} loading={loading} />}
         {status.state === "ready" && tab === "conversations" && <ConversationsTab users={users} dives={dives} />}
       </main>
+      </ReadOnly.Provider>
     </div>
   );
 }

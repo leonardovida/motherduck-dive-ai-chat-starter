@@ -104,6 +104,23 @@ Grant access to the app in your identity provider too, for example by assigning 
 
 `lib/auth.mjs` builds the list in `ssoProviders()`. Better Auth includes helpers for Auth0, Keycloak, Slack and others (`better-auth/plugins/generic-oauth`), and SAML through its SSO plugin. Add an entry there, and the sign-in page shows its button automatically.
 
+## Run a public demo
+
+`PUBLIC_DEMO=true` turns a deployment into a demo that anyone with the sign-in can explore, without being able to break it for the next visitor:
+
+- Visitors share one administrator account, so they can open every screen, including **People** and **Conversations**.
+- Every change is switched off and says "This is not available in a public demo.": adding people, passwords, access, roles, disabling, deleting, and changing the shared account itself. The server refuses these requests too, not just the interface.
+- Model tiers left out of `CHAT_MODELS` stay in the picker, greyed out with the same message.
+- The chat panel tells visitors that their conversations are visible to every other visitor.
+- The chat limit of 20 questions a minute applies to each visitor's session rather than to the shared account.
+
+To set one up:
+
+1. Set up accounts mode as above, and create the shared account with `npm run admin:create -- --username=demo`.
+2. While `PUBLIC_DEMO` is still off, add a few example people in the admin portal, so visitors have something to look at. Use made-up names and no real email addresses, because every visitor can see them.
+3. Set `PUBLIC_DEMO=true`, `CHAT_MODELS=luna` (or the tiers you want to pay for) and a short `CHAT_RETENTION_DAYS`, such as `7`.
+4. Publish the username and password where you want visitors to find them. Set a monthly spending limit with your model provider, because anyone with the sign-in can ask questions.
+
 ## How it is built
 
 - `lib/auth.mjs` configures Better Auth: username and password with self-sign-up off, the admin plugin, generic OIDC, sessions that last seven days, a one-minute signed cookie cache, and sign-in rate limits.
@@ -111,6 +128,7 @@ Grant access to the app in your identity provider too, for example by assigning 
 - `lib/app-db-schema.mjs` generates DuckDB tables from Better Auth's own schema. Better Auth's migrator expects Postgres catalog functions that MotherDuck does not have, so `npm run db:migrate` owns the schema and Better Auth's start-up schema check is switched off.
 - `lib/conversations.mjs` stores conversations with parameterized SQL. A person can only continue their own conversations.
 - Admin routes require an administrator session, a fresh session lookup and a same-origin request for changes.
+- `lib/public-demo.mjs` holds the public demo switch and the short list of account endpoints a demo visitor may reach.
 
 ## Limits
 

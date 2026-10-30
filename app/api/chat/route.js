@@ -11,6 +11,7 @@ import { languageModel, PROVIDER_OPTIONS } from '../../../lib/model-providers.mj
 import { classifyRoute, escalation, routeQuestion } from '../../../lib/model-router.mjs';
 import { canSeeDive, getViewer } from '../../../lib/viewer.mjs';
 import { createConversationStore, recordingEnabled, retentionDays, toolReceipts } from '../../../lib/conversations.mjs';
+import { publicDemo } from '../../../lib/public-demo.mjs';
 
 export const runtime = 'nodejs';
 // Deeper tiers explore over several tool steps; 300s is the Fluid compute default.
@@ -33,7 +34,7 @@ const textOf = message => message?.parts.map(p => p.text).join('') ?? '';
 // The picker reads only which tiers are enabled; ids, providers and limits stay on the server.
 export async function GET(request) {
   if (!await getViewer(request.headers)) return failure('authentication_required', 401);
-  return Response.json({ ...modelCatalog(), recording: recordingEnabled() }, { headers: NO_STORE });
+  return Response.json({ ...modelCatalog(), recording: recordingEnabled(), ...(publicDemo() ? { publicDemo: true, retentionDays: retentionDays() } : {}) }, { headers: NO_STORE });
 }
 
 // Optional suggestions use another model request. Keep that completion delay bounded.
@@ -55,7 +56,8 @@ export async function POST(request) {
   if (!viewer) return failure('authentication_required', 401);
   if (!sameOrigin({ headers })) return failure('origin_not_allowed', 403);
   if (!viewer.chat) return failure('chat_not_allowed', 403);
-  const limitKey = viewer.mode === 'accounts' ? viewer.id : sessionCookie({ headers });
+  // Public demo visitors share one account, so they are limited per session instead.
+  const limitKey = viewer.mode !== 'accounts' ? sessionCookie({ headers }) : publicDemo() ? viewer.sessionId ?? viewer.id : viewer.id;
   const now = Date.now(), window = usage.get(limitKey);
   if (window && window.until > now && window.count >= 20) return failure('chat_rate_limited', 429);
   usage.set(limitKey, { until: window?.until > now ? window.until : now + 60000, count: window?.until > now ? window.count + 1 : 1 });
