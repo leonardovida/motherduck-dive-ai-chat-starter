@@ -10,7 +10,8 @@ import { AUTO, MODEL_KEYS, TIERS, chatConfigured, enabledModelKeys, modelCatalog
 import { languageModel, PROVIDER_OPTIONS } from '../../../lib/model-providers.mjs';
 import { classifyRoute, escalation, routeQuestion } from '../../../lib/model-router.mjs';
 import { canSeeDive, getViewer } from '../../../lib/viewer.mjs';
-import { createConversationStore, recordingEnabled, retentionDays, toolReceipts } from '../../../lib/conversations.mjs';
+import { randomUUID } from 'node:crypto';
+import { createConversationStore, failedText, recordingEnabled, retentionDays, toolReceipts } from '../../../lib/conversations.mjs';
 import { publicDemo } from '../../../lib/public-demo.mjs';
 import { diveIdentity } from '../../../lib/groups.mjs';
 import { motherDuckAdmin } from '../../../lib/motherduck-admin.mjs';
@@ -113,11 +114,12 @@ Answer with the conclusion first and the supporting numbers after. Name the tabl
   // Saving never blocks or breaks an answer: storage failures are logged and the chat continues.
   const store = recordingEnabled() ? createConversationStore() : null;
   let conversationId = null;
+  const questionId = randomUUID(), answerId = randomUUID();
   if (store) {
-    try { conversationId = await store.startTurn({ conversationId: body.conversationId, viewer, diveKey: dive.key, question: textOf(messages.at(-1)) }); }
+    try { conversationId = await store.startTurn({ conversationId: body.conversationId, viewer, diveKey: dive.key, question: textOf(messages.at(-1)), questionId, state }); }
     catch (error) { console.error('conversation_save_failed', error?.code ?? error?.name); }
   }
-  const metadata = extra => ({ model: model.key, auto: Boolean(route), ...(route ? { routeReason: [route.reason, ...escalations].join('; ') } : {}), ...(conversationId ? { conversationId } : {}), ...extra });
+  const metadata = extra => ({ model: model.key, auto: Boolean(route), ...(route ? { routeReason: [route.reason, ...escalations].join('; ') } : {}), ...(conversationId ? { conversationId, answerId } : {}), ...extra });
   const stream = createUIMessageStream({
     onError: () => UNAVAILABLE,
     execute: async ({ writer }) => {
@@ -151,7 +153,8 @@ Answer with the conclusion first and the supporting numbers after. Name the tabl
         try {
           const steps = await Promise.resolve(result.steps).catch(() => []);
           const totals = await Promise.resolve(result.totalUsage).catch(() => null);
-          await store.finishTurn({ conversationId, answer: answer || (failed ? '[The answer failed.]' : '[Stopped before an answer.]'), tools: toolReceipts(steps), model, routeReason: metadata().routeReason, usage: totals, workedMs });
+          const status = answer ? 'answered' : request.signal.aborted && !failed ? 'stopped' : 'failed';
+          await store.finishTurn({ conversationId, answerId, replyTo: questionId, status, answer: answer || failedText(status === 'failed'), tools: toolReceipts(steps), model, routeReason: metadata().routeReason, usage: totals, workedMs });
           const days = retentionDays();
           if (days && Math.random() < 0.02) await store.purgeOlderThan(days);
         } catch (error) { console.error('conversation_save_failed', error?.code ?? error?.name); }

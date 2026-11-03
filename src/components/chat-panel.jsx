@@ -46,6 +46,8 @@ import {
   Square,
   TableProperties,
   Terminal,
+  ThumbsDown,
+  ThumbsUp,
   Trash2,
   X,
 } from "lucide-react";
@@ -164,6 +166,11 @@ const COPY = {
   explored: ["1 step", "{n} steps"],
   copy: "Copy answer",
   copied: "Copied",
+  helpful: "Helpful",
+  notHelpful: "Not helpful",
+  feedbackSaved: "Thanks. Your rating was saved.",
+  feedbackCleared: "Rating removed.",
+  feedbackFailed: "The rating could not be saved.",
   modelHint: { auto: "Picks per question", luna: "Fast", sol: "Balanced", astra: "Deep analysis" },
 };
 
@@ -324,13 +331,53 @@ function CopyAnswer({ text }) {
   );
 }
 
+// Ratings survive switching Dives and back, like the conversation itself.
+const RATINGS = new Map();
+
+// Thumbs up or down on a saved answer. Pressing the active one again clears it.
+function RateAnswer({ conversationId, answerId }) {
+  const [value, setValue] = useState(() => RATINGS.get(answerId) ?? 0);
+  const [status, setStatus] = useState("");
+  const rate = async (pressed) => {
+    const next = value === pressed ? 0 : pressed;
+    const previous = value;
+    setValue(next);
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        const response = await fetch("/api/chat/feedback", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ conversationId, answerId, value: next }) });
+        if (response.ok) {
+          RATINGS.set(answerId, next);
+          setStatus(next ? COPY.feedbackSaved : COPY.feedbackCleared);
+          return;
+        }
+        // The answer is saved a moment after it finishes, so a quick click may arrive first.
+        if (response.status !== 404) break;
+      } catch { break; }
+      await new Promise((resolve) => setTimeout(resolve, 800));
+    }
+    setValue(previous);
+    setStatus(COPY.feedbackFailed);
+  };
+  return (
+    <>
+      <MessageAction label={COPY.helpful} title={COPY.helpful} aria-pressed={value === 1} className={value === 1 ? "chat-rated" : undefined} onClick={() => rate(1)}>
+        <ThumbsUp aria-hidden="true" />
+      </MessageAction>
+      <MessageAction label={COPY.notHelpful} title={COPY.notHelpful} aria-pressed={value === -1} className={value === -1 ? "chat-rated" : undefined} onClick={() => rate(-1)}>
+        <ThumbsDown aria-hidden="true" />
+      </MessageAction>
+      <span className={status === COPY.feedbackFailed ? "chat-rating-status" : "sr-only"} role="status">{status}</span>
+    </>
+  );
+}
+
 // The tier of the latest answer, so a short follow-up can keep it when routing automatically.
 function previousTier(messages) {
   const tier = messages.findLast((message) => message.role === "assistant" && message.metadata?.model)?.metadata.model;
   return ["luna", "sol", "astra"].includes(tier) ? tier : undefined;
 }
 
-function ChatMessage({ message, working, showModel }) {
+function ChatMessage({ message, working, showModel, canRate }) {
   const text = messageText(message);
   const tier = MODEL_NAMES[message.metadata?.model];
   // Auto answers always say which tier answered and why; manual picks only when several were used.
@@ -350,6 +397,7 @@ function ChatMessage({ message, working, showModel }) {
         {text && !working && (
           <MessageActions className="chat-message-actions">
             <CopyAnswer text={text} />
+            {canRate && message.metadata?.answerId && message.metadata?.conversationId && <RateAnswer conversationId={message.metadata.conversationId} answerId={message.metadata.answerId} />}
             {model && <span className="chat-model-tag" title={message.metadata?.routeReason || undefined}>{model}</span>}
           </MessageActions>
         )}
@@ -489,7 +537,7 @@ function ChatSession({ dive, state, ready, frameStatus, onClose }) {
         <ConversationContent data-slot="conversation-content">
           {!messages.length && <ConversationEmptyState title={canAsk ? COPY.empty : waiting} description="" />}
           {messages.map((message, index) => (
-            <ChatMessage key={message.id} message={message} working={busy && index === messages.length - 1} showModel={usedModels.size > 1} />
+            <ChatMessage key={message.id} message={message} working={busy && index === messages.length - 1} showModel={usedModels.size > 1} canRate={Boolean(catalog?.recording)} />
           ))}
           {awaitingFirstToken && <p className="chat-tool-pending" role="status">{COPY.thinking}</p>}
           {error && <p className="chat-request-error" role="alert">{rateLimited ? COPY.rateLimited : String(error?.message || "").includes("chat_not_allowed") ? COPY.deniedBody : COPY.error}</p>}

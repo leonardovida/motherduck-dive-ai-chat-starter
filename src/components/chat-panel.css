@@ -307,6 +307,10 @@
   color: var(--muted-foreground);
 }
 
+.chat-message-actions .chat-rated { color: var(--foreground); background: var(--muted); }
+.chat-message-actions .chat-rated svg { fill: currentColor; fill-opacity: 0.18; }
+.chat-rating-status { color: var(--destructive); font-size: 0.7rem; }
+
 .chat-message-actions .chat-model-tag {
   align-self: center;
   margin-left: 0.2rem;

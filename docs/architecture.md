@@ -32,7 +32,7 @@ When `MOTHERDUCK_APP_TOKEN` is set, Better Auth (mounted at `/api/account`) repl
 
 `lib/viewer.mjs` resolves every request to a viewer with a role, a Dive allowlist and a chat flag. `/api/dives` filters the list. `/api/embed`, `/api/chat` and the admin routes re-check the session against the database on every request, so bans and access changes apply at once. Admin changes also require a same-origin request. The schema is generated from Better Auth's own field definitions by `lib/app-db-schema.mjs`, because MotherDuck has no Postgres catalog functions for Better Auth's migrator. References are indexed but not constrained, since DuckDB cannot cascade deletes.
 
-Saved conversations hold the question, the answer, the model and the routing reason, token counts and compact tool receipts (SQL, row counts, errors), but never result rows. A viewer can only append to their own conversation. Saving failures are logged and never interrupt an answer.
+Saved conversations hold the question, the answer, the model and the routing reason, token counts and compact tool receipts (SQL, row counts, errors), but never result rows. Each question also keeps the asker's group names and the Dive state. Each answer keeps its outcome (`answered`, `failed` or `stopped`), a link to its question and the asker's rating. The `chat_questions` view pairs them for the admin **Questions** tab and for SQL in MotherDuck. A viewer can only append to their own conversation. Saving failures are logged and never interrupt an answer.
 
 ## Models and routing
 
