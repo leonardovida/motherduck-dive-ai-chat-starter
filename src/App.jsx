@@ -146,6 +146,17 @@ const COPY = {
   demoBadgeHint: "Every screen is open to explore, and changes are switched off.",
   demoSignIn: "This is a public demo.",
   demoSignInLink: "Find the demo sign-in",
+  passwordSetupTitle: "Choose your password",
+  passwordSetupBody: "Welcome, {name}. Choose a password to sign in as {username}.",
+  passwordSetupChecking: "Checking your setup link…",
+  passwordSetupInvalid: "This setup link has expired or was already used. Ask the person who invited you for a new one.",
+  passwordSetupPassword: "New password (12+ characters)",
+  passwordSetupConfirm: "Repeat the password",
+  passwordSetupTooShort: "Use at least 12 characters.",
+  passwordSetupMismatch: "The two passwords do not match.",
+  passwordSetupSubmit: "Set password and sign in",
+  passwordSetupSaving: "Setting your password…",
+  passwordSetupToSignIn: "Go to sign-in",
 };
 
 function fill(template, values) {
@@ -337,6 +348,73 @@ function LoginView({ appTitle, devPassword, mode, sso = [], demo, theme, setThem
   );
 }
 
+// Setup links carry a one-time token in the URL fragment, which never reaches a server log or a
+// Referer header. It is read once and removed from the address bar straight away.
+function takeSetupToken() {
+  if (typeof window === "undefined") return "";
+  const match = /^#setup=([A-Za-z0-9_-]{43})$/.exec(window.location.hash);
+  if (!match) return "";
+  window.history.replaceState(null, "", window.location.pathname + window.location.search);
+  return match[1];
+}
+// Read once when the module loads: StrictMode calls state initializers twice in development.
+const SETUP_TOKEN = takeSetupToken();
+
+function SetupPasswordView({ appTitle, token, theme, setTheme, onDone }) {
+  const [person, setPerson] = React.useState(null);
+  const [status, setStatus] = React.useState("checking");
+  const [form, setForm] = React.useState({ password: "", confirm: "" });
+  const [error, setError] = React.useState("");
+  React.useEffect(() => {
+    let active = true;
+    jsonRequest("/api/account-setup", { method: "POST", body: JSON.stringify({ token }) })
+      .then(({ response, data }) => { if (active) { setPerson(response.ok ? data : null); setStatus(response.ok ? "ready" : "invalid"); } })
+      .catch(() => active && setStatus("invalid"));
+    return () => { active = false; };
+  }, [token]);
+  const submit = async (event) => {
+    event.preventDefault();
+    if (form.password.length < 12) return setError(COPY.passwordSetupTooShort);
+    if (form.password !== form.confirm) return setError(COPY.passwordSetupMismatch);
+    setStatus("saving"); setError("");
+    try {
+      const { response, data } = await jsonRequest("/api/account-setup", { method: "POST", body: JSON.stringify({ token, password: form.password }) });
+      if (!response.ok) { setStatus(data?.error === "setup_link_invalid" ? "invalid" : "ready"); setError(data?.error === "setup_link_invalid" ? "" : COPY.authUnavailable); return; }
+      const { authClient } = await import("./lib/auth-client.js");
+      await authClient.signIn.username({ username: data.username, password: form.password });
+      onDone();
+    } catch { setStatus("ready"); setError(COPY.authUnavailable); }
+  };
+  return (
+    <div className="login-shell">
+      <div className="login-theme"><ThemeButton theme={theme} setTheme={setTheme} /></div>
+      <main className="login-main">
+        <div className="login-brand"><h1>{appTitle}</h1><p>Your dashboards, with an AI data assistant.</p></div>
+        <Card className="login-card">
+          <CardHeader>
+            <CardTitle id="setup-title" className="login-title">{COPY.passwordSetupTitle}</CardTitle>
+            <CardDescription>{status === "checking" ? COPY.passwordSetupChecking : status === "invalid" ? COPY.passwordSetupInvalid : fill(COPY.passwordSetupBody, { name: person?.name || person?.username, username: person?.username })}</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {status === "invalid" ? <Button className="login-submit" onClick={onDone}>{COPY.passwordSetupToSignIn}</Button> : status !== "checking" && (
+              <form className="login-form" onSubmit={submit} noValidate aria-labelledby="setup-title">
+                <input type="text" name="username" autoComplete="username" value={person?.username || ""} readOnly hidden />
+                <div className="login-field"><Label htmlFor="setup-password">{COPY.passwordSetupPassword}</Label><Input id="setup-password" type="password" autoComplete="new-password" value={form.password} onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))} autoFocus aria-describedby="setup-status" disabled={status === "saving"} /></div>
+                <div className="login-field"><Label htmlFor="setup-confirm">{COPY.passwordSetupConfirm}</Label><Input id="setup-confirm" type="password" autoComplete="new-password" value={form.confirm} onChange={(event) => setForm((current) => ({ ...current, confirm: event.target.value }))} aria-describedby="setup-status" disabled={status === "saving"} /></div>
+                <p id="setup-status" className="login-error" role="status" aria-live="polite">{error && <><CircleAlert aria-hidden="true" />{error}</>}</p>
+                <Button className="login-submit" type="submit" disabled={status === "saving"}>
+                  {status === "saving" && <Loader2 className="animate-spin" data-icon="inline-start" aria-hidden="true" />}
+                  {status === "saving" ? COPY.passwordSetupSaving : COPY.passwordSetupSubmit}
+                </Button>
+              </form>
+            )}
+          </CardContent>
+        </Card>
+      </main>
+    </div>
+  );
+}
+
 function DiveSidebar({ dives, selectedKey, onSelect, onSignOut, user }) {
   const { isMobile, setOpenMobile } = useSidebar();
   const select = (key) => {
@@ -373,7 +451,7 @@ function DiveSidebar({ dives, selectedKey, onSelect, onSignOut, user }) {
       </SidebarContent>
       <SidebarFooter className="sidebar-footer">
         <SidebarMenu>
-          {user?.isAdmin && (
+          {(user?.isAdmin || user?.canManage) && (
             <SidebarMenuItem>
               <SidebarMenuButton className="sign-out-button" render={<a href="/admin" />}><ShieldCheck aria-hidden="true" /><span>{COPY.admin}</span></SidebarMenuButton>
             </SidebarMenuItem>
@@ -792,6 +870,7 @@ function AuthenticatedApp({ appTitle, theme, setTheme, dives, selectedKey, setSe
 export default function App() {
   const [theme, setTheme] = useStoredPreference("dive_app_theme", "light");
   const [diveKey, setDiveKey] = useStoredPreference("dive_app_dive", "");
+  const [setupToken, setSetupToken] = React.useState(SETUP_TOKEN);
   const [auth, setAuth] = React.useState({ state: "checking", appTitle: COPY.defaultTitle, devPassword: "", mode: "password", sso: [], user: null, demo: { on: false, signInUrl: "" } });
   const [dives, setDives] = React.useState([]);
   const [divesState, setDivesState] = React.useState("loading");
@@ -888,6 +967,7 @@ export default function App() {
     }
   };
 
+  if (setupToken && auth.state !== "checking" && auth.mode === "accounts") return <SetupPasswordView appTitle={auth.appTitle} token={setupToken} theme={theme} setTheme={setTheme} onDone={() => { setSetupToken(""); refreshAuth(); }} />;
   if (auth.state === "checking") return <div className="boot-screen"><Spinner className="size-5" /><span>{COPY.loading}</span></div>;
   if (auth.state === "unauthenticated") return <LoginView appTitle={auth.appTitle} devPassword={auth.devPassword} mode={auth.mode} sso={auth.sso} demo={auth.demo} theme={theme} setTheme={setTheme} onSubmit={submitLogin} onSso={signInWithSso} />;
   if (divesState === "loading") return <div className="boot-screen"><Spinner className="size-5" /><span>{COPY.loadDives}</span></div>;

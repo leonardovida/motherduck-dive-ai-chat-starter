@@ -39,6 +39,7 @@ Optional. Setting `MOTHERDUCK_APP_TOKEN` switches from the shared password to pe
 | Setting | Required | What it is | Where it comes from |
 | --- | --- | --- | --- |
 | `MOTHERDUCK_APP_TOKEN` | For accounts | A **read-write** MotherDuck token for the app's own database (accounts, sessions, saved conversations). Never the chat token. | A service account that owns only the app database. |
+| `MOTHERDUCK_ADMIN_TOKEN` | No | Mirrors access in the app onto MotherDuck: share grants for people and group service accounts, attaching shares for those service accounts, and their short-lived chat tokens. Without it the admin portal shows the SQL to run instead, and groups with a service account have no chat. See [Mirror access onto MotherDuck](accounts.md#mirror-access-onto-motherduck). | An **Admin**'s token whose account owns the shares behind the Dives. Get approval before adding it. |
 | `APP_DATABASE` | No | The app database's name. The default is `dive_chat_app`. | You choose it. `npm run db:migrate` creates the tables. |
 | `APP_URL` | In production off Vercel | The public address, used for SSO redirects and request-origin checks. | Your domain, for example `https://dives.example.com`. |
 | `CHAT_HISTORY` | No | `off` stops saving conversations. They are saved by default in accounts mode. | You choose it. |
