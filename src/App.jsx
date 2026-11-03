@@ -125,6 +125,18 @@ const COPY = {
   resizeChat: "Resize chat",
   signOut: "Sign out",
   theme: "Theme",
+  changePassword: "Change password",
+  changePasswordBody: "Choose a new password. You stay signed in here and are signed out everywhere else.",
+  currentPassword: "Current password",
+  newPassword: "New password (12+ characters)",
+  repeatPassword: "Repeat the new password",
+  savePassword: "Save password",
+  savingPassword: "Saving…",
+  passwordChanged: "Your password is changed.",
+  wrongPassword: "The current password is not right.",
+  ssoNoPassword: "You sign in with single sign-on, so your password is managed by your identity provider.",
+  passwordTooManyAttempts: "Too many attempts. Wait a few minutes and try again.",
+  passwordUnavailable: "The password could not be changed. Try again shortly.",
   light: "Light",
   dark: "Dark",
   menu: "Menu",
@@ -415,13 +427,55 @@ function SetupPasswordView({ appTitle, token, theme, setTheme, onDone }) {
   );
 }
 
-function DiveSidebar({ dives, selectedKey, onSelect, onSignOut, user }) {
+// People with accounts can change their own password; single sign-on users are told where to.
+function ChangePasswordSheet({ open, onOpenChange }) {
+  const [form, setForm] = React.useState({ current: "", next: "", repeat: "" });
+  const [state, setState] = React.useState({ busy: false, message: "", done: false });
+  React.useEffect(() => { if (open) { setForm({ current: "", next: "", repeat: "" }); setState({ busy: false, message: "", done: false }); } }, [open]);
+  const set = (key) => (event) => setForm((current) => ({ ...current, [key]: event.target.value }));
+  const submit = async (event) => {
+    event.preventDefault();
+    if (form.next.length < 12) return setState({ busy: false, message: COPY.passwordSetupTooShort, done: false });
+    if (form.next !== form.repeat) return setState({ busy: false, message: COPY.passwordSetupMismatch, done: false });
+    setState({ busy: true, message: "", done: false });
+    try {
+      const { authClient } = await import("./lib/auth-client.js");
+      const { error } = await authClient.changePassword({ currentPassword: form.current, newPassword: form.next, revokeOtherSessions: true });
+      if (!error) return setState({ busy: false, message: COPY.passwordChanged, done: true });
+      const code = String(error.code || "");
+      setState({ busy: false, done: false, message: code === "CREDENTIAL_ACCOUNT_NOT_FOUND" ? COPY.ssoNoPassword : code === "INVALID_PASSWORD" ? COPY.wrongPassword : error.status === 429 ? COPY.passwordTooManyAttempts : COPY.passwordUnavailable });
+    } catch { setState({ busy: false, message: COPY.passwordUnavailable, done: false }); }
+  };
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent className="change-password-sheet" style={{ width: "min(100%,400px)", maxWidth: "100%" }}>
+        <SheetHeader>
+          <SheetTitle>{COPY.changePassword}</SheetTitle>
+          <SheetDescription>{COPY.changePasswordBody}</SheetDescription>
+        </SheetHeader>
+        <form className="grid gap-4 px-4" onSubmit={submit} noValidate>
+          <div className="grid gap-1.5"><Label htmlFor="current-password">{COPY.currentPassword}</Label><Input id="current-password" type="password" autoComplete="current-password" value={form.current} onChange={set("current")} disabled={state.busy} /></div>
+          <div className="grid gap-1.5"><Label htmlFor="new-password">{COPY.newPassword}</Label><Input id="new-password" type="password" autoComplete="new-password" value={form.next} onChange={set("next")} disabled={state.busy} /></div>
+          <div className="grid gap-1.5"><Label htmlFor="repeat-password">{COPY.repeatPassword}</Label><Input id="repeat-password" type="password" autoComplete="new-password" value={form.repeat} onChange={set("repeat")} disabled={state.busy} /></div>
+          <p role={state.done ? "status" : "alert"} aria-live="polite" className={state.done ? "text-sm text-muted-foreground" : "text-sm text-destructive"}>{state.message}</p>
+          <Button type="submit" disabled={state.busy || state.done}>{state.busy && <Loader2 className="animate-spin" data-icon="inline-start" aria-hidden="true" />}{state.busy ? COPY.savingPassword : COPY.savePassword}</Button>
+        </form>
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+function DiveSidebar({ dives, selectedKey, onSelect, onSignOut, user, demo }) {
+  const [passwordOpen, setPasswordOpen] = React.useState(false);
   const { isMobile, setOpenMobile } = useSidebar();
   const select = (key) => {
     onSelect(key);
     if (isMobile) setOpenMobile(false);
   };
+  // The password panel sits outside the sidebar, which closes on phones when it opens.
   return (
+    <>
+    <ChangePasswordSheet open={passwordOpen} onOpenChange={setPasswordOpen} />
     <Sidebar mobileTitle={COPY.dives} mobileDescription={COPY.chooseDive} collapsible={isMobile ? "offcanvas" : "none"} className="app-sidebar" style={{ "--sidebar-width": "100%" }}>
       <SidebarContent>
         <SidebarGroup className="workspace-nav-group">
@@ -456,12 +510,18 @@ function DiveSidebar({ dives, selectedKey, onSelect, onSignOut, user }) {
               <SidebarMenuButton className="sign-out-button" render={<a href="/admin" />}><ShieldCheck aria-hidden="true" /><span>{COPY.admin}</span></SidebarMenuButton>
             </SidebarMenuItem>
           )}
+          {user?.mode === "accounts" && !demo && (
+            <SidebarMenuItem>
+              <SidebarMenuButton className="sign-out-button" onClick={() => { if (isMobile) setOpenMobile(false); setPasswordOpen(true); }}><KeyRound aria-hidden="true" /><span>{COPY.changePassword}</span></SidebarMenuButton>
+            </SidebarMenuItem>
+          )}
           <SidebarMenuItem>
             <SidebarMenuButton className="sign-out-button" onClick={onSignOut} title={user?.name ? fill(COPY.signedInAs, { name: user.username || user.name }) : undefined}><LogOut aria-hidden="true" /><span>{COPY.signOut}</span></SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarFooter>
     </Sidebar>
+    </>
   );
 }
 
@@ -760,7 +820,7 @@ function MainContent({ appTitle, theme, setTheme, dive, dives, onSelectDive, onS
     }
   }, [sidebarCollapsed]);
 
-  const sidebar = <DiveSidebar dives={dives} selectedKey={dive.key} onSelect={onSelectDive} onSignOut={onSignOut} user={user} />;
+  const sidebar = <DiveSidebar dives={dives} selectedKey={dive.key} onSelect={onSelectDive} onSignOut={onSignOut} user={user} demo={demo} />;
   const sidebarLabel = sidebarCollapsed ? COPY.expandSidebar : COPY.collapseSidebar;
 
   const header = (

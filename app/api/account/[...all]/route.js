@@ -43,6 +43,13 @@ const handle = method => async request => {
     else if (response.status === 401 || response.status === 403) perAccount.failed(key);
     return response;
   }
+  if (path === '/change-password') {
+    // Read who it is first: changing the password ends the session the request came with.
+    const person = await getViewer(request.headers, process.env, auth, { fresh: true });
+    const response = await run();
+    if (response.ok && person) await audit(person, 'person.password_changed');
+    return response;
+  }
   const action = ADMIN_ACTIONS[path];
   // Only signed-in requests are worth reading before Better Auth refuses the rest.
   if (!action || !request.headers.get('cookie')) return run();
