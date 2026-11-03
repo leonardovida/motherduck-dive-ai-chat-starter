@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { NO_STORE, failure, requirePeopleManager } from '../../../../../../lib/admin-api.mjs';
 import { createPeopleService } from '../../../../../../lib/people.mjs';
 import { scheduleSync } from '../../../../../../lib/access-sync.mjs';
+import { audit } from '../../../../../../lib/audit.mjs';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -18,10 +19,12 @@ export async function POST(request, { params }) {
   const people = createPeopleService();
   try {
     if (!await people.inScope(scope, id)) return failure('not_found', 404);
-    await people.setBanned(id, body.banned);
+    await people.setBanned(id, body.banned, { scope });
+    await audit(viewer, body.banned ? 'person.disabled' : 'person.enabled', { user: id });
     await scheduleSync();
     return Response.json({ banned: body.banned }, { headers: NO_STORE });
   } catch (error) {
+    if (error.status) return failure(error.message, error.status);
     console.error('status_update_failed', error?.code ?? error?.name);
     return failure('accounts_unavailable', 503);
   }

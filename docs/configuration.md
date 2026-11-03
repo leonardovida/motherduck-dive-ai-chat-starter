@@ -49,6 +49,10 @@ Optional. Setting `MOTHERDUCK_APP_TOKEN` switches from the shared password to pe
 | `PUBLIC_DEMO` | No | `true` makes a look-around demo: visitors can open every screen, including the admin portal, but cannot change anything. Model tiers left out of `CHAT_MODELS` stay visible but greyed out. See [Run a public demo](accounts.md#run-a-public-demo). | You choose it. |
 | `PUBLIC_DEMO_SIGN_IN_URL` | No | In a public demo, an `https` link on the sign-in page to where the demo username and password are published, such as a README section. | You choose it. |
 | `AUTH_ALLOWED_EMAIL_DOMAINS` | No | Lets SSO create accounts for these domains, separated by commas. Without it, only existing accounts can use SSO. | Your company domains. |
+| `SSO_TRUSTED` | No | `true` trusts the generic OpenID Connect provider's emails without an `email_verified` claim, for linking and account creation. Use it only for your own directory, where nobody can register with an email they choose. | Your choice. |
+| `AUTH_NEW_ACCOUNT_ACCESS` | No | `all` (the default) gives accounts that SSO creates every Dive and chat. `none` starts them with nothing until an administrator grants access. | Your choice. |
+| `AUTH_DOMAIN_GROUPS` | No | Puts people whose verified email is at a domain into a group when SSO creates their account, for example `acme.com=Acme, globex.com=Globex`. Those domains may create accounts. See [Who single sign-on lets in](accounts.md#who-single-sign-on-lets-in). | Your domains and the group names in the admin portal. |
+| `CRON_SECRET` | No | Lets the daily access check run (`/api/cron/access-sync`), which puts MotherDuck grants right after a failed sync or a change made outside the app. | Any random string of 16 or more characters. Vercel sends it to scheduled routes automatically. |
 
 ### AI chat
 
@@ -109,6 +113,6 @@ The assistant can read any value the Dive stores with `useDiveState`, such as a 
 - **Data access** is decided by the read-only MotherDuck identities and their grants, not by prompts or browser filters.
 - **Keys and tokens** stay on the server. The browser receives only a short-lived embed session.
 - **SQL from chat** is limited to one read-only statement. Writes, file readers, external locations and dynamic SQL are refused.
-- **Sign-in** is either one shared password (demos) or per-person [accounts](accounts.md) with roles, per-Dive access and optional SSO. For a multi-tenant product, also map each signed-in customer to their own data identities on the server.
+- **Sign-in** is either one shared password (demos) or per-person [accounts](accounts.md) with roles, per-Dive access and optional SSO. For a multi-tenant product, give each customer a [group with its own MotherDuck service account](accounts.md#serve-your-customers), so MotherDuck keeps their data apart.
 
 [docs/architecture.md](architecture.md) has the full design.

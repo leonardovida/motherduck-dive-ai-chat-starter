@@ -1,5 +1,6 @@
 import { NO_STORE, failure, requirePeopleManager } from '../../../../../../lib/admin-api.mjs';
 import { createPeopleService } from '../../../../../../lib/people.mjs';
+import { audit } from '../../../../../../lib/audit.mjs';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -12,8 +13,11 @@ export async function POST(request, { params }) {
   const people = createPeopleService();
   try {
     if (!await people.inScope(scope, id)) return failure('not_found', 404);
-    return Response.json(await people.setupLink(id, { viewer, origin: new URL(request.url).origin }), { headers: NO_STORE });
+    const link = await people.setupLink(id, { viewer, scope, origin: new URL(request.url).origin });
+    await audit(viewer, 'person.setup_link', { user: id });
+    return Response.json(link, { headers: NO_STORE });
   } catch (error) {
+    if (error.status) return failure(error.message, error.status);
     console.error('setup_link_failed', error?.code ?? error?.name);
     return failure('accounts_unavailable', 503);
   }

@@ -4,6 +4,7 @@ import { appQuery } from '../../../../../../lib/app-db.mjs';
 import { listDives } from '../../../../../../lib/dives.mjs';
 import { formatDiveAccess, MOTHERDUCK_USER } from '../../../../../../lib/groups.mjs';
 import { scheduleSync } from '../../../../../../lib/access-sync.mjs';
+import { audit } from '../../../../../../lib/audit.mjs';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -19,7 +20,7 @@ const accessSchema = z.object({
 // Sign-in and roles stay with Better Auth's admin endpoints; these fields live on the same row.
 // The access sync then mirrors the change onto MotherDuck share grants in the background.
 export async function PATCH(request, { params }) {
-  const { response } = await requireAdmin(request, { write: true });
+  const { response, viewer } = await requireAdmin(request, { write: true });
   if (response) return response;
   let body;
   try { body = accessSchema.parse(await request.json()); } catch { return failure('invalid_access', 400); }
@@ -31,6 +32,7 @@ export async function PATCH(request, { params }) {
       ? await appQuery('UPDATE "user" SET "diveAccess" = $1, "chatAccess" = $2, "updatedAt" = $3 WHERE id = $4 RETURNING id', [formatDiveAccess(dives), body.chat, new Date(), id])
       : await appQuery('UPDATE "user" SET "diveAccess" = $1, "chatAccess" = $2, "motherduckUser" = $3, "updatedAt" = $4 WHERE id = $5 RETURNING id', [formatDiveAccess(dives), body.chat, body.motherduckUser || null, new Date(), id]);
     if (!rows.length) return failure('not_found', 404);
+    await audit(viewer, 'person.access_changed', { user: id }, { dives, chat: body.chat, ...(body.motherduckUser !== undefined ? { motherduckUser: body.motherduckUser || null } : {}) });
     await scheduleSync();
     // Signed session cookies refresh within a minute, so the change applies on the next lookups.
     return Response.json({ access: { dives, chat: body.chat, ...(body.motherduckUser !== undefined ? { motherduckUser: body.motherduckUser || null } : {}) } }, { headers: NO_STORE });

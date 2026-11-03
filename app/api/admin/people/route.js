@@ -2,7 +2,10 @@ import { z } from 'zod';
 import { NO_STORE, failure, requirePeopleManager } from '../../../../lib/admin-api.mjs';
 import { createPeopleService, MAX_IMPORT } from '../../../../lib/people.mjs';
 import { listDives, publicDive } from '../../../../lib/dives.mjs';
+import { adminConfigured } from '../../../../lib/motherduck-admin.mjs';
+import { diveIdentity } from '../../../../lib/groups.mjs';
 import { scheduleSync } from '../../../../lib/access-sync.mjs';
+import { audit } from '../../../../lib/audit.mjs';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -23,8 +26,13 @@ export async function GET(request) {
   try {
     const result = await createPeopleService().list(scope);
     // Administrators grant any configured Dive, not only the ones they can open themselves.
-    const dives = listDives().map(dive => { const { key, title, connected } = publicDive(dive); return { key, title, connected }; });
-    return Response.json({ ...result, dives, scope: scope.all ? 'admin' : 'manager', me: viewer.id }, { headers: NO_STORE });
+    const configured = listDives();
+    const dives = configured.map(dive => { const { key, title, connected } = publicDive(dive); return { key, title, connected }; });
+    // Whether chat really works for a group's members: a group with a service account needs
+    // the admin token to mint its chat tokens, and the Dive's chat database among its own.
+    const chatReady = group => group.chat && (!group.serviceAccount || (adminConfigured() && configured.some(dive => (group.dives === '*' || group.dives.includes(dive.key)) && diveIdentity(dive, { dataGroup: group }).chat)));
+    result.groups = result.groups.map(group => ({ ...group, chatReady: chatReady(group) }));
+    return Response.json({ ...result, dives, scope: scope.all ? 'admin' : 'manager', me: viewer.id, maxImport: MAX_IMPORT, mdAutomatic: adminConfigured() }, { headers: NO_STORE });
   } catch (error) {
     console.error('people_list_failed', error?.code ?? error?.name);
     return failure('accounts_unavailable', 503);
@@ -43,6 +51,7 @@ export async function POST(request) {
   }
   try {
     const results = await createPeopleService().create(body, { scope, viewer, origin: new URL(request.url).origin });
+    for (const result of results.filter(item => item.id)) await audit(viewer, 'person.created', { id: result.id, label: result.username }, { group: body.groupId ?? null, role: scope.all ? body.role ?? 'user' : 'user', setupLink: Boolean(result.setupUrl) });
     if (results.some(result => result.id)) await scheduleSync();
     return Response.json({ results }, { headers: NO_STORE });
   } catch (error) {
