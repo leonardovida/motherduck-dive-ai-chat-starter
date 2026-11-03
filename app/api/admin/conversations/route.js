@@ -11,7 +11,7 @@ export async function GET(request) {
   try {
     const conversations = await createConversationStore().list({
       userId: query.get('user')?.slice(0, 64) || undefined, diveKey: query.get('dive')?.slice(0, 40) || undefined,
-      search: query.get('q')?.slice(0, 100) || undefined, limit: query.get('limit'), offset: query.get('offset'),
+      search: query.get('q')?.slice(0, 100) || undefined, attention: query.get('attention') === '1', limit: query.get('limit'), offset: query.get('offset'),
     });
     return Response.json({ conversations }, { headers: NO_STORE });
   } catch (error) {

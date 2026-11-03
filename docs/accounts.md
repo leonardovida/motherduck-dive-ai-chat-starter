@@ -8,6 +8,7 @@ By default the starter has one shared password. **Accounts mode** replaces it wi
 - **Access mirrored onto MotherDuck (optional).** When someone gets a Dive in the app, the app grants the shares behind it in MotherDuck, to the person's MotherDuck user or the group's service account, and attaches them for service accounts. It removes only what it added.
 - **Single sign-on (optional).** Okta, Microsoft Entra ID, Google Workspace, Auth0, Keycloak or any OpenID Connect provider, plus Google or GitHub login.
 - **Saved conversations.** Administrators can read every chat: the question, the answer, the SQL that ran, which model answered and why.
+- **Question tracking.** Every question is saved with its outcome, the asker's groups, the Dive state and a thumbs up or down from the asker. The **Questions** tab shows volume, outcomes and the most asked questions, and the `chat_questions` view makes the same data queryable in MotherDuck.
 
 Accounts, sessions and conversations are stored in a **MotherDuck database** that the app owns, so there is no extra database service to run. Authentication uses [Better Auth](https://www.better-auth.com/), an open-source library.
 
@@ -66,15 +67,61 @@ When `MOTHERDUCK_APP_TOKEN` is set, the shared `DEMO_PASSWORD` is no longer acce
 
 **MotherDuck access** shows every grant the app has made or is waiting to make, and the SQL to run when the app is not allowed to make them itself.
 
-**Activity** lists who changed what, newest first: people added, access changed, people disabled or deleted, setup links and passwords set, roles, groups and their members, service accounts created, MotherDuck syncs and deleted conversations. Filter by a person's name or by the kind of change. Entries never hold passwords, setup links or tokens.
+**Activity** lists who changed what, newest first: people added, access changed, people disabled or deleted, setup links and passwords set, roles, groups and their members, service accounts created, MotherDuck syncs, deleted conversations and question exports. Filter by a person's name or by the kind of change. Entries never hold passwords, setup links or tokens.
 
 **People change their own password** from **Change password** in the sidebar. It signs them out everywhere else. People who sign in with single sign-on are told to change it with their identity provider. A public demo hides it.
 
 **Conversations**
 
-- Filter by person or Dive, or search by the first question.
-- Open a conversation to see each question and answer. Each answer shows the model and provider, the routing reason (see [model routing](model-routing.md)), token counts, time taken and every tool step with its SQL.
+- Filter by person or Dive, search by the first question, or show only conversations that need attention: a failed or stopped answer, or a thumbs down.
+- Open a conversation to see each question and answer. Each question shows the asker's groups and the Dive state it was asked about. Each answer shows its outcome and rating, the model and provider, the routing reason (see [model routing](model-routing.md)), token counts, time taken and every tool step with its SQL.
 - **Export JSON** downloads a conversation. **Delete** removes it.
+
+**Questions**
+
+- Pick a period (7, 30 or 90 days, or 12 months), a Dive and a group.
+- The tiles count questions, people and conversations, the share answered, failed and stopped, the thumbs up and down, and the typical answer time.
+- A chart shows questions per day (UTC), with the part that needs attention on top.
+- **Needs attention** lists the newest failed or stopped answers and answers rated not helpful. **Most asked** groups questions that differ only in case, spacing or closing punctuation. Select either to open the conversation.
+- Splits by Dive, group and model show where questions come from and which tier answered them.
+- **Export CSV** downloads the questions in the filter, without the answers, and is recorded in **Activity**. Cells that a spreadsheet would run as a formula start with a quote.
+
+## Track questions in MotherDuck
+
+`npm run db:migrate` creates a `chat_questions` view in the app database: one row per question, with its answer. Query it from any MotherDuck client or build a Dive on it. Replace `dive_chat_app` with your `APP_DATABASE`.
+
+| Column | Meaning |
+| --- | --- |
+| `question_id`, `conversation_id` | Identify the question and its conversation. |
+| `user_id`, `user_label`, `group_names` | Who asked, and the groups they were in when they asked (a JSON list). |
+| `dive_key`, `dive_state` | The Dive, and its filters and selections at the time (JSON). |
+| `question`, `asked_at` | What was asked, and when. |
+| `answer_id`, `answer`, `answered_at` | The saved answer. |
+| `status` | `answered`, `failed`, `stopped`, or `unanswered` when no answer was saved. |
+| `feedback` | `1` for thumbs up, `-1` for thumbs down, empty when not rated. |
+| `model_tier`, `model_provider`, `model_id`, `route_reason` | Which model answered and why (see [model routing](model-routing.md)). |
+| `input_tokens`, `output_tokens`, `worked_ms`, `tool_calls` | Cost and effort of the answer. |
+
+```sql
+-- Questions per week, and how many needed attention
+SELECT date_trunc('week', asked_at) AS week, count(*) AS questions,
+       count(*) FILTER (WHERE status <> 'answered' OR feedback = -1) AS needs_attention
+FROM dive_chat_app.chat_questions
+GROUP BY ALL ORDER BY week;
+
+-- Questions per group
+SELECT g.group_name, count(*) AS questions
+FROM dive_chat_app.chat_questions, unnest(from_json(group_names, '["VARCHAR"]')) AS g(group_name)
+GROUP BY ALL ORDER BY questions DESC;
+
+-- Answers to review, with the Dive filter that was set
+SELECT asked_at, user_label, dive_key, question, status, model_tier, dive_state->>'region' AS region
+FROM dive_chat_app.chat_questions
+WHERE status <> 'answered' OR feedback = -1
+ORDER BY asked_at DESC;
+```
+
+The view reads the app database, which also holds accounts and sessions. Give a dashboard its own read-only copy, for example `CREATE TABLE analytics.chat_questions AS FROM dive_chat_app.chat_questions` on a schedule, rather than sharing the app database. Answers saved before this version have no groups or Dive state, and their status is read from the saved text.
 
 ## Serve your customers
 
@@ -136,7 +183,9 @@ In accounts mode conversations are saved by default, and the chat panel tells pe
 | `CHAT_HISTORY=off` | Nothing is saved, and the notice disappears. |
 | `CHAT_RETENTION_DAYS=90` | Messages older than 90 days are deleted automatically. |
 
-Saved answers keep the SQL and row counts, but **never the result rows**, so the app database does not become a copy of your data. Tell your users how long you keep conversations and who can read them.
+Saved answers keep the SQL and row counts, but **never the result rows**, so the app database does not become a copy of your data. Each question also keeps the asker's group names and the Dive's state (its filters and selections, up to 8 KB). Tell your users how long you keep conversations and who can read them.
+
+Below each answer the asker can choose **Helpful** or **Not helpful**. Pressing the same button again removes the rating. Only the person who asked can rate an answer, and the buttons appear only when conversations are saved.
 
 ## Single sign-on
 
@@ -205,12 +254,13 @@ To set one up:
 - `lib/auth.mjs` configures Better Auth: username and password with self-sign-up off, the admin plugin, generic OIDC, sessions that last seven days, a one-minute signed cookie cache, and sign-in rate limits.
 - `lib/viewer.mjs` resolves who is asking and what they may open, for both the shared password and accounts. `/api/dives`, `/api/embed`, `/api/chat` and the admin routes all use it.
 - `lib/app-db-schema.mjs` generates DuckDB tables from Better Auth's own schema. Better Auth's migrator expects Postgres catalog functions that MotherDuck does not have, so `npm run db:migrate` owns the schema and Better Auth's start-up schema check is switched off.
-- `lib/conversations.mjs` stores conversations with parameterized SQL. A person can only continue their own conversations.
+- `lib/conversations.mjs` stores conversations with parameterized SQL. A person can only continue, and rate answers in, their own conversations (`/api/chat/feedback`).
+- `lib/insights.mjs` reads the `chat_questions` view for the **Questions** tab (`/api/admin/insights`). Every filter is a parameter and the period is at most 365 days.
 - Admin routes require an administrator session, a fresh session lookup and a same-origin request for changes.
 - `lib/public-demo.mjs` holds the public demo switch and the short list of account endpoints a demo visitor may reach.
 - `lib/groups.mjs` folds group access into each viewer and picks the MotherDuck identity for each Dive (`diveIdentity`). If groups cannot be read, the person gets no Dives rather than the wrong data.
 - `lib/access-sync.mjs` computes the wanted share grants from the app database, plans the changes against what it recorded in `md_access_grant`, and applies them through `lib/motherduck-admin.mjs`. The `app_lock` table keeps one sync running at a time. `lib/account-setup.mjs` handles setup links.
-- `lib/audit.mjs` records who changed what in `audit_event`: people, access, groups, MotherDuck grants and deleted conversations. Entries hold usernames and settings, never passwords, setup links or tokens.
+- `lib/audit.mjs` records who changed what in `audit_event`: people, access, groups, MotherDuck grants, deleted conversations and question exports. Entries hold usernames and settings, never passwords, setup links or tokens.
 
 ## Limits
 

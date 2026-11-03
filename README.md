@@ -161,6 +161,7 @@ Sign in, then open **Admin** in the sidebar. There you can:
 - **Serve customers:** give a customer's group its own MotherDuck service account and databases, and make someone on their side a **group manager**.
 - **Keep MotherDuck in step:** with `MOTHERDUCK_ADMIN_TOKEN`, granting a dashboard also grants the shares behind it in MotherDuck. Without it, the portal shows the SQL to run.
 - **Read conversations:** every question, answer and SQL query, with the model that answered.
+- **Track questions:** what people ask, how each answer went and how they rated it, by Dive, group and model, with a CSV export and a `chat_questions` view to query in MotherDuck.
 - **See who changed what:** the **Activity** tab lists every change to people, access, groups and MotherDuck grants.
 - **Bring SSO domains straight into groups:** `AUTH_DOMAIN_GROUPS` puts people from a company's email domain into its group on their first sign-in.
 

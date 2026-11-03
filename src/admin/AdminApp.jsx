@@ -1,5 +1,5 @@
 import * as React from "react";
-import { ArrowLeft, Ban, Check, CheckCheck, Copy, Database, Download, History, KeyRound, Link2, MessageSquare, Pencil, Plus, RefreshCw, Search, ShieldCheck, Trash2, UserMinus, UserPlus, Users, UsersRound } from "lucide-react";
+import { ArrowLeft, Ban, ChartColumn, Check, CheckCheck, Copy, Database, Download, History, KeyRound, Link2, MessageSquare, Pencil, Plus, RefreshCw, Search, ShieldCheck, ThumbsDown, ThumbsUp, Trash2, UserMinus, UserPlus, Users, UsersRound } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -18,6 +18,7 @@ const COPY = {
   groups: "Groups",
   motherduck: "MotherDuck access",
   conversations: "Conversations",
+  questions: "Questions",
   activity: "Activity",
   accountsOff: "Accounts are not turned on",
   accountsOffBody: "Set MOTHERDUCK_APP_TOKEN, run npm run db:migrate and create the first admin with npm run admin:create. See docs/accounts.md.",
@@ -86,6 +87,8 @@ const COPY = {
     sync_failed: "the sync failed. See the server log",
     automatic_mode: "the app syncs by itself, so there is nothing to mark",
     demo_read_only: "this is not available in a public demo",
+    conversations_unavailable: "the app database did not answer. Try again",
+    insights_need_migration: "run npm run db:migrate to add question tracking to the app database",
   },
   everyone: "Everyone",
   banned: "Disabled",
@@ -131,6 +134,49 @@ const COPY = {
   sql: "SQL",
   tool: { getDiveState: "Read the Dive state", listTables: "Listed tables", describeTable: "Described a table", runQuery: "Ran a query" },
   exportJson: "Export JSON",
+  needsAttention: "Needs attention",
+  needsAttentionFilter: "Only failed, stopped or rated not helpful",
+  statuses: { answered: "Answered", failed: "Failed", stopped: "Stopped", unanswered: "No answer saved" },
+  helpful: "Rated helpful",
+  notHelpful: "Rated not helpful",
+  askedFrom: "Groups: {groups}",
+  askedWith: "Dive state: {state}",
+  questionsTitle: "Questions asked in chat",
+  questionsBody: "What people ask, how each answer went and how they rated it. Every question is saved in the app database. Query the chat_questions view in MotherDuck for anything this page does not show.",
+  periods: [[7, "Last 7 days"], [30, "Last 30 days"], [90, "Last 90 days"], [365, "Last 12 months"]],
+  period: "Period",
+  allGroups: "All groups",
+  noGroup: "No group",
+  noModel: "No answer",
+  exportQuestions: "Export CSV",
+  noQuestions: "No questions in this period.",
+  tileQuestions: "Questions",
+  tileQuestionsDetail: "{people} · {conversations}",
+  people: ["1 person", "{n} people"],
+  conversationCount: ["1 conversation", "{n} conversations"],
+  tileAnswered: "Answered",
+  tileAnsweredDetail: "{failed} failed · {stopped} stopped · {unanswered} without a saved answer",
+  tileFeedback: "Feedback",
+  tileFeedbackDetail: "{rated}% of answers rated",
+  tileSpeed: "Typical answer time",
+  tileSpeedDetail: "median · {tokens} tokens in total",
+  perDay: "Questions per day (UTC)",
+  dayReadout: "{day}: {questions} · {attention} needing attention",
+  periodReadout: "{questions} in this period · {attention} needing attention. Hover a day for its numbers.",
+  questionCount: ["1 question", "{n} questions"],
+  byDive: "By Dive",
+  byGroup: "By group",
+  byModel: "By model",
+  colName: "Name",
+  colQuestions: "Questions",
+  colAttention: "Needs attention",
+  frequent: "Most asked",
+  frequentHint: "Questions that differ only in case, spacing or punctuation count together.",
+  askedBy: "{questions} · {people} · last {when}",
+  attention: "Needs attention",
+  attentionHint: "The newest failed or stopped answers, and answers rated not helpful.",
+  noAttention: "Nothing needs attention in this period.",
+  openConversation: "Open the conversation",
   loadMore: "Load more",
   refresh: "Refresh",
   newGroup: "New group",
@@ -168,7 +214,7 @@ const COPY = {
   syncing: "Syncing…",
   totals: "{synced} synced · {pending} waiting · {failed} failed · {toRemove} to remove",
   activityTitle: "Activity",
-  activityBody: "Who changed what: people, access, groups, MotherDuck grants and deleted conversations. Passwords, setup links and tokens are never recorded.",
+  activityBody: "Who changed what: people, access, groups, MotherDuck grants, deleted conversations and question exports. Passwords, setup links and tokens are never recorded.",
   filterActivity: "Find a person",
   allActions: "All changes",
   noActivity: "No changes recorded yet.",
@@ -178,7 +224,7 @@ const COPY = {
     "person.role_changed": "Changed the role of", "person.removed": "Deleted", "person.signed_out": "Signed out", "person.impersonated": "Signed in as", "person.updated": "Changed the details of",
     "group.created": "Created group", "group.updated": "Changed group", "group.deleted": "Deleted group", "group.member_added": "Added to a group",
     "group.member_removed": "Removed from a group", "group.service_account_created": "Created the service account of",
-    "access_sync.run": "Synced MotherDuck access", "access_sync.confirmed": "Marked the MotherDuck SQL as done", "conversation.deleted": "Deleted a conversation",
+    "access_sync.run": "Synced MotherDuck access", "access_sync.confirmed": "Marked the MotherDuck SQL as done", "conversation.deleted": "Deleted a conversation", "questions.exported": "Exported the chat questions",
   },
   grantee: "Who",
   share: "Share",
@@ -195,7 +241,7 @@ const COPY = {
   mdFailed: "MotherDuck: failed",
   demoTitle: "Public demo",
   demoBody: "Every screen is open to explore. Changes are switched off, so the demo stays the same for every visitor.",
-  demoTry: ["Open Groups to see how a customer gets its own service account and databases.", "Open Edit access on a person to see how Dives, AI chat and a MotherDuck username are granted.", "Open Conversations to read questions other visitors asked, with the SQL, model and routing reason for each answer.", "Open Activity to see who changed what."],
+  demoTry: ["Open Groups to see how a customer gets its own service account and databases.", "Open Edit access on a person to see how Dives, AI chat and a MotherDuck username are granted.", "Open Conversations to read questions other visitors asked, with the SQL, model and routing reason for each answer.", "Open Questions to see what visitors ask, how each answer went and how they rated it.", "Open Activity to see who changed what."],
   demoUnavailable: "This is not available in a public demo.",
   managerTitle: "Your groups",
   managerBody: "You can add people to {groups}, send them setup links, and disable or remove them. Administrators decide what each group can open.",
@@ -215,7 +261,8 @@ const downloadText = (text, name, type) => {
   Object.assign(document.createElement("a"), { href: url, download: name }).click();
   URL.revokeObjectURL(url);
 };
-const csvCell = value => { const text = String(value ?? ""); return /[",\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text; };
+// Cells that a spreadsheet would run as a formula (questions are typed by anyone) get a leading quote.
+const csvCell = value => { const raw = String(value ?? ""); const text = /^[=+\-@\t\r]/.test(raw) ? `'${raw}` : raw; return /[",\n\r]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text; };
 
 async function api(url, options = {}) {
   const response = await fetch(url, { credentials: "same-origin", cache: "no-store", ...options, headers: { Accept: "application/json", ...(options.body ? { "Content-Type": "application/json" } : {}), ...options.headers } });
@@ -804,6 +851,210 @@ function AccessSyncTab({ status, reload }) {
   );
 }
 
+const percent = (part, whole) => (whole ? Math.round((part / whole) * 100) : 0);
+const seconds = ms => (ms == null ? "—" : fill(COPY.seconds, { s: (Number(ms) / 1000).toFixed(1) }));
+const shortDay = day => new Date(`${day}T00:00:00Z`).toLocaleDateString(undefined, { month: "short", day: "numeric", timeZone: "UTC" });
+const feedbackWord = value => (value === 1 ? "helpful" : value === -1 ? "not helpful" : "");
+
+function StatTile({ label, value, detail }) {
+  return (
+    <div className="grid content-start gap-0.5 rounded-lg border border-border px-3 py-2.5">
+      <span className="text-xs text-muted-foreground">{label}</span>
+      <span className="text-2xl font-semibold tabular-nums">{value}</span>
+      {detail && <span className="text-xs text-muted-foreground">{detail}</span>}
+    </div>
+  );
+}
+
+const Swatch = ({ color }) => <span className="inline-block size-2.5 shrink-0 rounded-sm" style={{ background: `var(${color})` }} aria-hidden="true" />;
+
+// Questions per day, the part that needs attention stacked on top. Hovering a day shows its
+// numbers in the line above the bars; screen readers get the same numbers as a table.
+function DailyChart({ daily }) {
+  const [hover, setHover] = React.useState(null);
+  const max = Math.max(1, ...daily.map(day => day.questions));
+  const total = daily.reduce((sum, day) => ({ questions: sum.questions + day.questions, attention: sum.attention + day.unsuccessful + day.negative }), { questions: 0, attention: 0 });
+  const day = hover == null ? null : daily[hover];
+  return (
+    <figure className="grid gap-2">
+      <figcaption className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+        <span className="font-medium text-foreground">{COPY.perDay}</span>
+        <span className="flex items-center gap-1.5"><Swatch color="--chart-answered" />{COPY.statuses.answered}</span>
+        <span className="flex items-center gap-1.5"><Swatch color="--chart-attention" />{COPY.needsAttention}</span>
+      </figcaption>
+      <p className="min-h-4 text-xs tabular-nums text-muted-foreground" aria-hidden="true">
+        {day
+          ? fill(COPY.dayReadout, { day: shortDay(day.day), questions: plural(COPY.questionCount, day.questions), attention: day.unsuccessful + day.negative })
+          : fill(COPY.periodReadout, { questions: plural(COPY.questionCount, total.questions), attention: total.attention })}
+      </p>
+      <div className="relative flex h-32 items-end gap-px border-b border-border" aria-hidden="true" onMouseLeave={() => setHover(null)}>
+        <span className="pointer-events-none absolute left-0 top-0 text-[11px] tabular-nums text-muted-foreground">{max}</span>
+        {daily.map((entry, index) => {
+          // A thumbs down on an answered question also counts as needing attention.
+          const attention = Math.min(entry.questions, entry.unsuccessful + entry.negative);
+          return (
+            <div key={entry.day} className={`flex h-full min-w-0 flex-1 flex-col justify-end gap-[2px] ${hover === index ? "bg-muted" : ""}`} onMouseEnter={() => setHover(index)}>
+              {attention > 0 && <div className="rounded-t-sm" style={{ height: `${(attention / max) * 100}%`, background: "var(--chart-attention)" }} />}
+              {entry.questions - attention > 0 && <div className={attention ? "" : "rounded-t-sm"} style={{ height: `${((entry.questions - attention) / max) * 100}%`, background: "var(--chart-answered)" }} />}
+            </div>
+          );
+        })}
+      </div>
+      <div className="flex justify-between text-[11px] text-muted-foreground" aria-hidden="true"><span>{shortDay(daily[0].day)}</span><span>{shortDay(daily.at(-1).day)}</span></div>
+      <table className="sr-only">
+        <caption>{COPY.perDay}</caption>
+        <thead><tr><th scope="col">Day</th><th scope="col">{COPY.colQuestions}</th><th scope="col">{COPY.colAttention}</th></tr></thead>
+        <tbody>{daily.filter(entry => entry.questions).map(entry => <tr key={entry.day}><th scope="row">{entry.day}</th><td>{entry.questions}</td><td>{entry.unsuccessful + entry.negative}</td></tr>)}</tbody>
+      </table>
+    </figure>
+  );
+}
+
+// One split (Dive, group or model): a row per value with a bar for its share of the questions.
+function SplitTable({ title, rows, name }) {
+  const max = Math.max(1, ...rows.map(row => row.questions));
+  return (
+    <div className="grid content-start gap-2">
+      <h3 className="text-sm font-medium">{title}</h3>
+      <table className="w-full text-sm">
+        <thead className="text-xs text-muted-foreground"><tr><th scope="col" className="pb-1 text-left font-normal">{COPY.colName}</th><th scope="col" className="pb-1 text-right font-normal">{COPY.colQuestions}</th><th scope="col" className="pb-1 text-right font-normal">{COPY.colAttention}</th><th scope="col" className="pb-1 text-right font-normal"><ThumbsUp className="ml-auto size-3.5" aria-label={COPY.helpful} /></th><th scope="col" className="pb-1 text-right font-normal"><ThumbsDown className="ml-auto size-3.5" aria-label={COPY.notHelpful} /></th></tr></thead>
+        <tbody>
+          {rows.map(row => (
+            <tr key={name(row)} className="border-t border-border">
+              <th scope="row" className="py-1.5 pr-2 text-left font-normal">
+                <span className="block truncate">{name(row)}</span>
+                <span className="mt-1 block h-1.5 rounded-full" style={{ width: `${Math.max(2, (row.questions / max) * 100)}%`, background: "var(--chart-answered)" }} aria-hidden="true" />
+              </th>
+              <td className="py-1.5 text-right tabular-nums">{row.questions}</td>
+              <td className="py-1.5 text-right tabular-nums">{row.unsuccessful + row.negative || "—"}</td>
+              <td className="py-1.5 pl-2 text-right tabular-nums">{row.positive || "—"}</td>
+              <td className="py-1.5 pl-2 text-right tabular-nums">{row.negative || "—"}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function QuestionsTab({ dives, onOpen }) {
+  const [filters, setFilters] = React.useState({ days: "30", dive: "", group: "" });
+  const [data, setData] = React.useState(null);
+  const [state, setState] = React.useState({ loading: true, error: "", exporting: false });
+  const diveTitle = key => dives.find(dive => dive.key === key)?.title || key;
+  const params = React.useMemo(() => new URLSearchParams(Object.entries(filters).filter(([, value]) => value)), [filters]);
+  const load = React.useCallback(async () => {
+    setState(current => ({ ...current, loading: true, error: "" }));
+    try { setData(await api(`/api/admin/insights?${params}`)); setState(current => ({ ...current, loading: false })); }
+    catch (error) { setState(current => ({ ...current, loading: false, error: reasonFor(error) })); }
+  }, [params]);
+  React.useEffect(() => { load(); }, [load]);
+  const exportCsv = async () => {
+    setState(current => ({ ...current, exporting: true, error: "" }));
+    try {
+      const { rows } = await api(`/api/admin/insights?${params}&format=rows`);
+      downloadText([
+        "asked_at,person,dive,groups,question,status,feedback,model,model_id,seconds,input_tokens,output_tokens,tool_calls,dive_state,conversation_id",
+        ...rows.map(row => [row.asked_at, row.user_label, row.dive_key, row.group_names.join("; "), row.question, row.status, feedbackWord(row.feedback), row.model_tier, row.model_id, row.worked_ms == null ? "" : (row.worked_ms / 1000).toFixed(1), row.input_tokens, row.output_tokens, row.tool_calls, row.dive_state ? JSON.stringify(row.dive_state) : "", row.conversation_id].map(csvCell).join(",")),
+      ].join("\n"), `questions-${filters.days}d.csv`, "text/csv");
+      setState(current => ({ ...current, exporting: false }));
+    } catch (error) { setState(current => ({ ...current, exporting: false, error: reasonFor(error) })); }
+  };
+  const totals = data?.totals;
+  const diveKeys = [...new Set([...dives.map(dive => dive.key), ...(data?.facets?.dives || [])])];
+  const rated = totals ? totals.positive + totals.negative : 0;
+  return (
+    <div className="grid gap-4">
+      <Card>
+        <CardHeader className="grid gap-3">
+          <div className="grid max-w-3xl gap-1.5"><CardTitle>{COPY.questionsTitle}</CardTitle><CardDescription>{COPY.questionsBody}</CardDescription></div>
+          <div className="flex flex-wrap gap-2">
+            <select aria-label={COPY.period} className={select} value={filters.days} onChange={e => setFilters(f => ({ ...f, days: e.target.value }))}>
+              {COPY.periods.map(([days, label]) => <option key={days} value={days}>{label}</option>)}
+            </select>
+            <select aria-label={COPY.allDivesFilter} className={select} value={filters.dive} onChange={e => setFilters(f => ({ ...f, dive: e.target.value }))}>
+              <option value="">{COPY.allDivesFilter}</option>
+              {diveKeys.map(key => <option key={key} value={key}>{diveTitle(key)}</option>)}
+            </select>
+            <select aria-label={COPY.allGroups} className={select} value={filters.group} onChange={e => setFilters(f => ({ ...f, group: e.target.value }))}>
+              <option value="">{COPY.allGroups}</option>
+              {(data?.facets?.groups || []).map(name => <option key={name} value={name}>{name}</option>)}
+            </select>
+            <span className="flex gap-2 sm:ml-auto">
+              <Button size="sm" variant="ghost" onClick={load} disabled={state.loading}><RefreshCw data-icon="inline-start" aria-hidden="true" />{COPY.refresh}</Button>
+              <Button size="sm" variant="outline" onClick={exportCsv} disabled={state.exporting || !totals?.questions}><Download data-icon="inline-start" aria-hidden="true" />{COPY.exportQuestions}</Button>
+            </span>
+          </div>
+        </CardHeader>
+        <CardContent className="grid gap-5">
+          <Notice message={state.error && fill(COPY.failed, { reason: state.error })} tone="error" />
+          {state.loading && !data && <Spinner />}
+          {totals && !totals.questions && <p className="text-sm text-muted-foreground">{COPY.noQuestions}</p>}
+          {totals?.questions > 0 && (
+            <>
+              <div className="grid grid-cols-2 gap-2 lg:grid-cols-4" aria-busy={state.loading}>
+                <StatTile label={COPY.tileQuestions} value={totals.questions} detail={fill(COPY.tileQuestionsDetail, { people: plural(COPY.people, totals.askers), conversations: plural(COPY.conversationCount, totals.conversations) })} />
+                <StatTile label={COPY.tileAnswered} value={`${percent(totals.answered, totals.questions)}%`} detail={fill(COPY.tileAnsweredDetail, totals)} />
+                <StatTile label={COPY.tileFeedback} value={<span className="flex items-center gap-3"><span className="flex items-center gap-1"><ThumbsUp className="size-4" aria-label={COPY.helpful} />{totals.positive}</span><span className="flex items-center gap-1"><ThumbsDown className="size-4" aria-label={COPY.notHelpful} />{totals.negative}</span></span>} detail={fill(COPY.tileFeedbackDetail, { rated: percent(rated, totals.answered) })} />
+                <StatTile label={COPY.tileSpeed} value={seconds(totals.median_ms)} detail={fill(COPY.tileSpeedDetail, { tokens: Number(totals.input_tokens + totals.output_tokens).toLocaleString() })} />
+              </div>
+              <DailyChart daily={data.daily} />
+            </>
+          )}
+        </CardContent>
+      </Card>
+      {totals?.questions > 0 && (
+        <>
+          <div className="grid gap-4 lg:grid-cols-2">
+            <Card className="min-w-0">
+              <CardHeader><CardTitle>{COPY.attention}</CardTitle><CardDescription>{COPY.attentionHint}</CardDescription></CardHeader>
+              <CardContent>
+                {!data.attention.length && <p className="text-sm text-muted-foreground">{COPY.noAttention}</p>}
+                <ul className="grid">
+                  {data.attention.map(item => (
+                    <li key={item.question_id}>
+                      <button type="button" onClick={() => onOpen(item.conversation_id)} title={COPY.openConversation} className="grid w-full gap-1 border-b border-border px-1 py-2 text-left last:border-b-0 hover:bg-muted">
+                        <span className="line-clamp-2 text-sm">{item.question}</span>
+                        <span className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                          {item.status !== "answered" && <Badge variant="destructive">{COPY.statuses[item.status] || item.status}</Badge>}
+                          {item.feedback === -1 && <Badge variant="outline"><ThumbsDown aria-hidden="true" />{COPY.notHelpful}</Badge>}
+                          {item.user_label} · {diveTitle(item.dive_key)} · {dateTime(item.asked_at)}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </CardContent>
+            </Card>
+            <Card className="min-w-0">
+              <CardHeader><CardTitle>{COPY.frequent}</CardTitle><CardDescription>{COPY.frequentHint}</CardDescription></CardHeader>
+              <CardContent>
+                <ol className="grid">
+                  {data.frequent.map(item => (
+                    <li key={item.conversation_id + item.question}>
+                      <button type="button" onClick={() => onOpen(item.conversation_id)} title={COPY.openConversation} className="grid w-full gap-1 border-b border-border px-1 py-2 text-left last:border-b-0 hover:bg-muted">
+                        <span className="line-clamp-2 text-sm">{item.question}</span>
+                        <span className="text-xs text-muted-foreground">{fill(COPY.askedBy, { questions: plural(COPY.questionCount, item.questions), people: plural(COPY.people, item.askers), when: dateTime(item.last_asked_at) })}{item.unsuccessful + item.negative ? ` · ${item.unsuccessful + item.negative} ${COPY.needsAttention.toLowerCase()}` : ""}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ol>
+              </CardContent>
+            </Card>
+          </div>
+          <Card>
+            <CardContent className="grid gap-6 pt-6 lg:grid-cols-3">
+              <SplitTable title={COPY.byDive} rows={data.dives} name={row => diveTitle(row.dive_key)} />
+              <SplitTable title={COPY.byGroup} rows={data.groups} name={row => row.group_name || COPY.noGroup} />
+              <SplitTable title={COPY.byModel} rows={data.models} name={row => row.model_tier || COPY.noModel} />
+            </CardContent>
+          </Card>
+        </>
+      )}
+    </div>
+  );
+}
+
 function ActivityTab() {
   const [filters, setFilters] = React.useState({ q: "", action: "" });
   const [events, setEvents] = React.useState([]);
@@ -885,9 +1136,16 @@ function ConversationDetail({ id, diveTitle, onDeleted }) {
       <ol className="grid gap-3">
         {conversation.messages.map(message => (
           <li key={message.id} className={message.role === "user" ? "rounded-md bg-muted px-3 py-2" : "rounded-md border border-border px-3 py-2"}>
-            <p className="mb-1 text-xs font-medium text-muted-foreground">{message.role === "user" ? COPY.question : COPY.answer} · {dateTime(message.created_at)}</p>
+            <p className="mb-1 flex flex-wrap items-center gap-1.5 text-xs font-medium text-muted-foreground">
+              {message.role === "user" ? COPY.question : COPY.answer} · {dateTime(message.created_at)}
+              {message.status && message.status !== "answered" && <Badge variant="destructive">{COPY.statuses[message.status] || message.status}</Badge>}
+              {message.feedback === 1 && <Badge variant="outline"><ThumbsUp aria-hidden="true" />{COPY.helpful}</Badge>}
+              {message.feedback === -1 && <Badge variant="outline"><ThumbsDown aria-hidden="true" />{COPY.notHelpful}</Badge>}
+            </p>
             {/* Answers render as the person saw them in the chat; questions stay plain text. */}
             {message.role === "assistant" ? <MessageResponse className="h-auto text-sm">{message.content}</MessageResponse> : <p className="whitespace-pre-wrap text-sm">{message.content}</p>}
+            {message.role === "user" && message.group_names?.length > 0 && <p className="mt-1 text-xs text-muted-foreground">{fill(COPY.askedFrom, { groups: message.group_names.join(", ") })}</p>}
+            {message.role === "user" && message.dive_state && Object.keys(message.dive_state).length > 0 && <p className="mt-1 break-words text-xs text-muted-foreground">{fill(COPY.askedWith, { state: Object.entries(message.dive_state).map(([key, value]) => `${key}: ${typeof value === "object" ? JSON.stringify(value) : String(value)}`).join(" · ") })}</p>}
             {message.role === "assistant" && (
               <div className="mt-2 grid gap-1 text-xs text-muted-foreground">
                 {message.model_tier && <span>{[message.model_tier, message.model_provider, message.model_id].filter(Boolean).join(" · ")}{message.worked_ms != null ? ` · ${fill(COPY.seconds, { s: (Number(message.worked_ms) / 1000).toFixed(1) })}` : ""}{message.input_tokens != null ? ` · ${fill(COPY.tokens, { input: message.input_tokens, output: message.output_tokens })}` : ""}</span>}
@@ -907,11 +1165,12 @@ function ConversationDetail({ id, diveTitle, onDeleted }) {
   );
 }
 
-function ConversationsTab({ users, dives }) {
-  const [filters, setFilters] = React.useState({ user: "", dive: "", q: "" });
+function ConversationsTab({ users, dives, initial }) {
+  const [filters, setFilters] = React.useState({ user: "", dive: "", q: "", attention: "" });
   const [items, setItems] = React.useState([]);
   const [state, setState] = React.useState({ loading: true, error: "", more: false });
-  const [selected, setSelected] = React.useState(null);
+  // Opened from the Questions tab with a conversation already picked.
+  const [selected, setSelected] = React.useState(initial ?? null);
   const detailRef = React.useRef(null);
   const diveTitle = key => dives.find(dive => dive.key === key)?.title || key;
   const open = id => {
@@ -944,6 +1203,7 @@ function ConversationsTab({ users, dives }) {
             </select>
           </div>
           <div className="relative"><Search className="absolute left-2 top-2.5 size-4 text-muted-foreground" aria-hidden="true" /><Input className="pl-8" aria-label={COPY.search} placeholder={COPY.search} value={filters.q} onChange={e => setFilters(f => ({ ...f, q: e.target.value }))} /></div>
+          <label className="flex items-center gap-2 text-sm"><input type="checkbox" className="size-4 accent-primary" checked={filters.attention === "1"} onChange={e => setFilters(f => ({ ...f, attention: e.target.checked ? "1" : "" }))} />{COPY.needsAttentionFilter}</label>
         </CardHeader>
         <CardContent>
           <Notice message={state.error && fill(COPY.failed, { reason: state.error })} tone="error" />
@@ -954,6 +1214,13 @@ function ConversationsTab({ users, dives }) {
                 <button type="button" onClick={() => open(item.id)} aria-current={selected === item.id || undefined} className={`grid w-full gap-0.5 border-b border-border px-1 py-2 text-left last:border-b-0 hover:bg-muted ${selected === item.id ? "bg-muted" : ""}`}>
                   <span className="truncate text-sm font-medium">{item.title || "—"}</span>
                   <span className="text-xs text-muted-foreground">{item.user_label} · {diveTitle(item.dive_key)} · {plural(COPY.messages, Number(item.message_count))}{item.model_tiers ? ` · ${item.model_tiers}` : ""} · {dateTime(item.updated_at)}</span>
+                  {(item.unsuccessful_count > 0 || item.negative_count > 0 || item.positive_count > 0) && (
+                    <span className="flex flex-wrap gap-1.5">
+                      {item.unsuccessful_count > 0 && <Badge variant="destructive">{COPY.needsAttention} · {item.unsuccessful_count}</Badge>}
+                      {item.negative_count > 0 && <Badge variant="outline"><ThumbsDown aria-label={COPY.notHelpful} />{item.negative_count}</Badge>}
+                      {item.positive_count > 0 && <Badge variant="outline"><ThumbsUp aria-label={COPY.helpful} />{item.positive_count}</Badge>}
+                    </span>
+                  )}
                 </button>
               </li>
             ))}
@@ -967,15 +1234,24 @@ function ConversationsTab({ users, dives }) {
   );
 }
 
+const tabFromHash = () => (typeof window !== "undefined" && /^#(users|groups|motherduck|activity|questions|conversations)$/.test(window.location.hash) ? window.location.hash.slice(1) : "users");
+
 export default function AdminApp() {
   const [status, setStatus] = React.useState({ state: "loading" });
   // The open tab lives in the URL (#groups), so reloading or sharing the address keeps it.
-  const [tab, setTabState] = React.useState(() => (typeof window !== "undefined" && /^#(users|groups|motherduck|activity|conversations)$/.test(window.location.hash) ? window.location.hash.slice(1) : "users"));
+  const [tab, setTabState] = React.useState(tabFromHash);
+  // A link or an edited address bar that changes only the #tab switches tabs too.
+  React.useEffect(() => {
+    const onHash = () => setTabState(tabFromHash());
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
   const setTab = React.useCallback(key => { setTabState(key); try { window.history.replaceState(null, "", key === "users" ? window.location.pathname : `#${key}`); } catch { /* the tab still changes */ } }, []);
   const [data, setData] = React.useState({ users: [], groups: [], dives: [], scope: "admin", me: null });
   const [sync, setSync] = React.useState(null);
   const [loading, setLoading] = React.useState(false);
   const [toast, setToast] = React.useState("");
+  const [openConversation, setOpenConversation] = React.useState(null);
   const toastTimer = React.useRef();
   const readOnly = React.useMemo(() => ({
     reason: status.demo ? COPY.demoUnavailable : "",
@@ -1018,7 +1294,7 @@ export default function AdminApp() {
   }, [load]);
 
   const admin = data.scope === "admin";
-  const tabs = [["users", COPY.users, Users], ...(admin ? [["groups", COPY.groups, UsersRound], ["motherduck", COPY.motherduck, Database], ["activity", COPY.activity, History], ["conversations", COPY.conversations, MessageSquare]] : [])];
+  const tabs = [["users", COPY.users, Users], ...(admin ? [["groups", COPY.groups, UsersRound], ["motherduck", COPY.motherduck, Database], ["activity", COPY.activity, History], ["questions", COPY.questions, ChartColumn], ["conversations", COPY.conversations, MessageSquare]] : [])];
   const shown = tabs.some(([key]) => key === tab) ? tab : "users";
   React.useEffect(() => { if (status.state === "ready" && shown === "motherduck") loadSync(); }, [status.state, shown, loadSync]);
   // Arrow keys move between tabs, as in any tab list.
@@ -1057,7 +1333,8 @@ export default function AdminApp() {
         {status.state === "ready" && admin && shown === "groups" && <GroupsTab data={data} mdAutomatic={data.mdAutomatic ?? sync?.mode === "automatic"} reload={load} />}
         {status.state === "ready" && admin && shown === "motherduck" && <AccessSyncTab status={sync} reload={loadSync} />}
         {status.state === "ready" && admin && shown === "activity" && <ActivityTab />}
-        {status.state === "ready" && admin && shown === "conversations" && <ConversationsTab users={data.users} dives={data.dives} />}
+        {status.state === "ready" && admin && shown === "questions" && <QuestionsTab dives={data.dives} onOpen={id => { setOpenConversation(id); setTab("conversations"); window.scrollTo({ top: 0 }); }} />}
+        {status.state === "ready" && admin && shown === "conversations" && <ConversationsTab key={openConversation ?? "all"} users={data.users} dives={data.dives} initial={openConversation} />}
       </main>
       <DemoToast message={toast} />
       </ReadOnly.Provider>

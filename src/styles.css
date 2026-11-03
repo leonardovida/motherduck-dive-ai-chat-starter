@@ -67,6 +67,9 @@
   --sidebar-border: #ebebeb;
   --sidebar-ring: #0070f3;
   --data-blue: #0068d6;
+  /* Admin Questions chart: answered and needs-attention series, validated for colour-vision deficiency. */
+  --chart-answered: #0068d6;
+  --chart-attention: #da2f35;
   --surface-raised: #ffffff;
   --surface-inset: #fafafa;
   color-scheme: light;
@@ -100,6 +103,8 @@
   --sidebar-border: #262626;
   --sidebar-ring: #3291ff;
   --data-blue: #52a8ff;
+  --chart-answered: #3291ff;
+  --chart-attention: #f2555b;
   --surface-raised: #111111;
   --surface-inset: #0a0a0a;
   color-scheme: dark;
