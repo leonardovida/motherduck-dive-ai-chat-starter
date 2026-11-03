@@ -27,7 +27,8 @@ Turn it on only when the user asks for per-person logins, an admin portal, SSO o
 1. Ask which MotherDuck organization and database name should hold the app data, then get approval before creating the database or a service account. The app token (`MOTHERDUCK_APP_TOKEN`) is read-write for that one database only. Never use it as the chat token, and never use the chat token here.
 2. Run `npm run db:migrate`, then `npm run admin:create -- --username=<name>`. Inject `ADMIN_PASSWORD` from the user's secret manager, or let the user type it at the prompt. Never choose, print or store an administrator password yourself.
 3. For SSO, ask which identity provider the user wants. Give them the exact redirect URI (`<APP_URL>/api/account/callback/<provider id>`) to register, and the env names to add. Keep `AUTH_ALLOWED_EMAIL_DOMAINS` unset unless the user wants SSO to create accounts on first sign-in.
-4. Saved conversations are on by default and announced in the chat panel. Tell the user, and ask whether they want `CHAT_HISTORY=off` or a `CHAT_RETENTION_DAYS` value.
+4. For a public demo, follow [Run a public demo](docs/accounts.md#run-a-public-demo). Turn on `PUBLIC_DEMO` only after the example people are in place.
+5. Saved conversations are on by default and announced in the chat panel. Tell the user, and ask whether they want `CHAT_HISTORY=off` or a `CHAT_RETENTION_DAYS` value.
 
 ## Models and routing
 

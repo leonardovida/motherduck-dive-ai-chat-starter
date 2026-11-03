@@ -242,6 +242,9 @@ body.is-sidebar-resizing .dive-frame { pointer-events: none; }
 .login-sso-divider { display: flex; align-items: center; gap: 0.75rem; margin: 0; color: var(--muted-foreground); font-size: 0.75rem; }
 .login-sso-divider::before, .login-sso-divider::after { content: ""; flex: 1; border-top: 1px solid var(--border); }
 .login-footer p { margin: 0; color: var(--muted-foreground); font-size: 0.8rem; }
+.login-footer a { color: var(--foreground); text-decoration: underline; text-underline-offset: 3px; }
+.demo-badge { cursor: default; }
+@media (max-width: 767px) { .demo-badge { display: none; } }
 .login-footer code { padding: 0.1rem 0.35rem; border: 1px solid var(--border); border-radius: 0.3rem; color: var(--foreground); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.75rem; }
 
 .login-brand { margin-bottom: 1.75rem; text-align: center; }

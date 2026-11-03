@@ -125,6 +125,9 @@ const COPY = {
   deniedTitle: "Chat isn't included in your access",
   deniedBody: "Ask an administrator to turn on chat for your account.",
   recording: "Conversations are saved and can be reviewed by administrators.",
+  demoRecording: "This is a public demo. Conversations are saved and visible to every visitor.",
+  demoRetention: "This is a public demo. Conversations are visible to every visitor and deleted after {days} days.",
+  demoUnavailable: "This is not available in a public demo.",
   routed: "Auto · {model}",
   followUps: "Suggested next",
   placeholder: "Ask about this Dive…",
@@ -473,6 +476,9 @@ function ChatSession({ dive, state, ready, frameStatus, onClose }) {
   const starters = dive?.starters?.length ? dive.starters : COPY.starters;
   const usedModels = new Set(messages.map((message) => message.metadata?.model).filter(Boolean));
   const modelItems = Object.fromEntries((catalog?.models || []).map((key) => [key, MODEL_NAMES[key] || key]));
+  // A public demo lists the tiers it switched off, greyed out, so visitors see what exists.
+  const unavailable = Array.isArray(catalog?.unavailable) ? catalog.unavailable : [];
+  const recordingNotice = !catalog?.recording ? "" : !catalog.publicDemo ? COPY.recording : catalog.retentionDays ? COPY.demoRetention.replace("{days}", catalog.retentionDays) : COPY.demoRecording;
   const rateLimited = String(error?.message || "").includes("chat_rate_limited");
 
   return (
@@ -526,16 +532,22 @@ function ChatSession({ dive, state, ready, frameStatus, onClose }) {
           </PromptInputBody>
           <PromptInputFooter>
             <PromptInputTools>
-              {catalog?.models.length > 1 ? (
+              {catalog?.models.length + unavailable.length > 1 ? (
                 <PromptInputSelect items={modelItems} value={model} onValueChange={chooseModel} disabled={busy}>
                   <PromptInputSelectTrigger size="sm" className="chat-model-trigger" aria-label={COPY.model}>
                     <PromptInputSelectValue />
                   </PromptInputSelectTrigger>
-                  <PromptInputSelectContent>
+                  <PromptInputSelectContent className={unavailable.length ? "w-max max-w-[calc(100vw-2rem)]" : undefined}>
                     {catalog.models.map((key) => (
                       <PromptInputSelectItem key={key} value={key}>
                         <span className="chat-model-name">{MODEL_NAMES[key] || key}</span>
                         <span className="chat-model-hint">{COPY.modelHint[key]}</span>
+                      </PromptInputSelectItem>
+                    ))}
+                    {unavailable.map((key) => (
+                      <PromptInputSelectItem key={key} value={key} disabled>
+                        <span className="chat-model-name">{MODEL_NAMES[key] || key}</span>
+                        <span className="chat-model-hint">{COPY.demoUnavailable}</span>
                       </PromptInputSelectItem>
                     ))}
                   </PromptInputSelectContent>
@@ -547,7 +559,7 @@ function ChatSession({ dive, state, ready, frameStatus, onClose }) {
             <PromptInputSubmit aria-label={COPY.send} title={COPY.send} status={status} disabled={!canAsk || busy} />
           </PromptInputFooter>
         </PromptInput>
-        {catalog?.recording && <p className="chat-recording-notice">{COPY.recording}</p>}
+        {recordingNotice && <p className="chat-recording-notice">{recordingNotice}</p>}
       </div>
     </aside>
   );
