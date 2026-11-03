@@ -52,11 +52,12 @@ When `MOTHERDUCK_APP_TOKEN` is set, the shared `DEMO_PASSWORD` is no longer acce
 
 **Groups**
 
-- A group has a name, the Dives it can open and whether it has AI chat. Access adds up: a person sees their own Dives plus those of every group they belong to.
+- A group has a name, the Dives it can open and whether it has AI chat. Access adds up: a person sees their own Dives plus those of every group they belong to, except in a group with a service account, which alone decides (below).
 - Tick **Manager** next to a member to let them look after the group's people (see [Group managers](#group-managers)).
 - **MotherDuck service account (optional).** Members of a group with a service account open Dives and ask questions as that account instead of the shared one. This is how one deployment serves several customers, each seeing only their own data. See [Serve your customers](#serve-your-customers).
 - **Databases for this group** replace a Dive's database, by its alias, for that group only. For example, the Explorer Dive reads alias `demo`; Acme's group points `demo` at `md:_share/acme_data/...` and Globex's at `md:_share/globex_data/...`.
 - A person can belong to only one group with a service account, so their MotherDuck identity is never ambiguous.
+- **A group with a service account decides on its own.** Every member reads data as the same service account, so a member sees exactly that group's Dives and chat. Their own access and their other groups add nothing, and the service account is granted only the group's Dives. Joining such a group clears the person's own access, so leaving it later does not fall back to the shared identity's Dives. Giving an existing group a service account does the same for its members.
 
 **MotherDuck access** shows every grant the app has made or is waiting to make, and the SQL to run when the app is not allowed to make them itself.
 
@@ -86,6 +87,12 @@ A manager of a group can open **Admin** and see only the people in the groups th
 
 They cannot grant Dives, change roles, see administrators, edit groups or read conversations. Managers suit customer administrators and team leads.
 
+A manager acts only on people who belong to nothing but the groups that manager runs. People who are also in another group, who manage a group themselves, or who are administrators are listed but stay with the administrators. In addition:
+
+- A manager cannot create a setup link for someone who signs in with single sign-on, because it would add a password beside their identity provider.
+- A manager cannot re-enable someone an administrator disabled.
+- A setup link a manager created stops working if, before it is used, the person joins another group, becomes a manager or administrator, starts using single sign-on, or the manager loses the role or is disabled. Disabling a person cancels their unused links.
+
 ## Mirror access onto MotherDuck
 
 For organizations whose people also use MotherDuck directly, and for customer groups with their own service accounts, the app can keep MotherDuck share grants in step with access in the app.
@@ -95,11 +102,13 @@ For organizations whose people also use MotherDuck directly, and for customer gr
 | A person with a **MotherDuck username** | `GRANT READ ON SHARE <share> TO USER <username>` for every share the Dive reads. The person can then attach the share in MotherDuck. |
 | A group with a **service account** | The same grant to the service account, then `ATTACH` of each share under the Dive's alias, so chat can query it. |
 
-When access is removed, or a person is disabled or deleted, the app revokes the grants and detaches the shares **it added**. A grant that already existed, or a share open to the whole organization, is recorded and left alone.
+When access is removed, or a person is disabled or deleted, the app revokes the grants and detaches the shares **it added**. A grant that already existed, or a share open to the whole organization, is recorded and left alone. Before revoking, the app checks that the grant is still there.
 
-**Automatic mode.** Set `MOTHERDUCK_ADMIN_TOKEN` to an **Admin**'s token whose account owns the shares (only a share's owner can grant it). Every change in the portal then triggers a sync in the background, and **MotherDuck access → Sync now** runs one on demand, for example after fixing a failed grant. The app attaches shares for a service account through a five-minute token for that account, which it deletes afterwards.
+**Automatic mode.** Set `MOTHERDUCK_ADMIN_TOKEN` to an **Admin**'s token whose account owns the shares (only a share's owner can grant it). Every change in the portal then triggers a sync in the background, and **MotherDuck access → Sync now** runs one on demand, for example after fixing a failed grant. The app attaches shares for a service account through a five-minute token for that account, which it deletes afterwards. One sync runs at a time across every server instance; a change made during a sync is picked up by one more run straight after it. Removals run before grants, so a Dive alias that moves to another share is detached first and then attached to the new share.
 
-**Manual mode.** Without the token nothing changes in MotherDuck by itself. **MotherDuck access** lists what is waiting and the exact SQL for the share owner to run. Organizations that keep administrative tokens out of web apps can use this mode, and groups with a service account then have no chat.
+**A daily check.** On Vercel, `vercel.json` schedules `/api/cron/access-sync` once a day, so grants changed outside the app, or a sync that failed, are put right. Set `CRON_SECRET` (any random string of 16 or more characters) for the route to run; Vercel sends it automatically. On other hosts, call the route with `Authorization: Bearer <CRON_SECRET>` from your own scheduler.
+
+**Manual mode.** Without the token nothing changes in MotherDuck by itself. **MotherDuck access** lists what is waiting, and the exact SQL for the share owner to run, including the `REVOKE` and `DETACH` statements when access is taken away. After running it, press **Mark as done**: waiting grants become synced, and finished removals leave the list. Organizations that keep administrative tokens out of web apps can use this mode, and groups with a service account then have no chat.
 
 Notes:
 
@@ -151,8 +160,9 @@ Shortcuts for common providers:
 
 ### Who single sign-on lets in
 
-- **Without `AUTH_ALLOWED_EMAIL_DOMAINS` (the default):** only people who already have an account can sign in with SSO. Add the person in the admin portal with the **same email** their identity provider uses. Their SSO login then links to that account.
-- **With `AUTH_ALLOWED_EMAIL_DOMAINS=acme.com,acme.io`:** anyone from those domains who passes your identity provider gets an account on first sign-in, with all Dives and chat. Administrators can narrow it afterwards.
+- **Without `AUTH_ALLOWED_EMAIL_DOMAINS` (the default):** only people who already have an account can sign in with SSO. An administrator adds the person in the admin portal with the **same email** their identity provider uses. Their SSO login then links to that account. Only emails an administrator typed count; an email a group manager typed never links to SSO, so a manager cannot claim someone else's sign-in.
+- **With `AUTH_ALLOWED_EMAIL_DOMAINS=acme.com,acme.io`:** anyone from those domains who passes your identity provider gets an account on first sign-in, with all Dives and chat. Set `AUTH_NEW_ACCOUNT_ACCESS=none` to start them with nothing until an administrator grants access.
+- **With `AUTH_DOMAIN_GROUPS=acme.com=Acme, globex.com=Globex`:** people whose **verified** email is at one of those domains join that group (by its name in the admin portal) when SSO creates their account, with no access of their own. Those domains may create accounts without being listed in `AUTH_ALLOWED_EMAIL_DOMAINS`. An unverified email from a mapped domain gets an account with no access. This suits a company whose departments, or whose customers, sign in with their own email domains.
 
 Grant access to the app in your identity provider too, for example by assigning the Okta app to a group. That is your first gate, and the domain allowlist is the second.
 
@@ -188,10 +198,12 @@ To set one up:
 - Admin routes require an administrator session, a fresh session lookup and a same-origin request for changes.
 - `lib/public-demo.mjs` holds the public demo switch and the short list of account endpoints a demo visitor may reach.
 - `lib/groups.mjs` folds group access into each viewer and picks the MotherDuck identity for each Dive (`diveIdentity`). If groups cannot be read, the person gets no Dives rather than the wrong data.
-- `lib/access-sync.mjs` computes the wanted share grants from the app database, plans the changes against what it recorded in `md_access_grant`, and applies them through `lib/motherduck-admin.mjs`. `lib/account-setup.mjs` handles setup links.
+- `lib/access-sync.mjs` computes the wanted share grants from the app database, plans the changes against what it recorded in `md_access_grant`, and applies them through `lib/motherduck-admin.mjs`. The `app_lock` table keeps one sync running at a time. `lib/account-setup.mjs` handles setup links.
+- `lib/audit.mjs` records who changed what in `audit_event`: people, access, groups, MotherDuck grants and deleted conversations. Entries hold usernames and settings, never passwords, setup links or tokens.
 
 ## Limits
 
+- Sign-in allows ten failed attempts per username every ten minutes on any host, on top of Better Auth's per-address limit. Where no trusted client address is known (see `AUTH_TRUSTED_IP_HEADER`), a shared ceiling of 300 failed sign-ins every ten minutes also applies.
 - Rate limits and the chat request budget are kept in memory for each server instance. For heavy public use, put a shared limiter in front of the app or add a [Better Auth secondary storage](https://www.better-auth.com/docs/concepts/database#secondary-storage).
 - The app database sees one small write per sign-in and two per chat answer. That suits teams and customer pilots. For thousands of concurrent users, move accounts to a dedicated transactional database.
 - The access sync reconciles every person and group on each run, which suits hundreds of people. Organizations with many thousands would need a sync by group, which the template does not include yet.

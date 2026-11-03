@@ -1,5 +1,6 @@
 import { NO_STORE, failure, requireAdmin } from '../../../../../lib/admin-api.mjs';
 import { createConversationStore } from '../../../../../lib/conversations.mjs';
+import { audit } from '../../../../../lib/audit.mjs';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -17,10 +18,13 @@ export async function GET(request, { params }) {
 }
 
 export async function DELETE(request, { params }) {
-  const { response } = await requireAdmin(request, { write: true });
+  const { response, viewer } = await requireAdmin(request, { write: true });
   if (response) return response;
   try {
-    return (await createConversationStore().remove((await params).id)) ? Response.json({ deleted: true }, { headers: NO_STORE }) : failure('not_found', 404);
+    const id = (await params).id;
+    if (!await createConversationStore().remove(id)) return failure('not_found', 404);
+    await audit(viewer, 'conversation.deleted', { id });
+    return Response.json({ deleted: true }, { headers: NO_STORE });
   } catch (error) {
     console.error('conversation_delete_failed', error?.code ?? error?.name);
     return failure('conversations_unavailable', 503);

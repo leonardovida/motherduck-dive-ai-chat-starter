@@ -79,3 +79,10 @@ test('comments are stripped and quoted text is kept in the executed SQL', () => 
   assert.equal(guarded.sql.includes("'a;b'"), true);
   assert.equal(guarded.sql.includes('note'), false);
 });
+
+test('spatial file readers and settings or secrets functions are refused', () => {
+  for (const sql of ["SELECT * FROM ST_Read('/vsis3/bucket/x.shp')", "SELECT * FROM st_readosm('x.osm.pbf')", "SELECT current_setting('motherduck_token')", 'SELECT * FROM duckdb_secrets()', "SELECT getvariable('x')", 'FROM duckdb_settings()']) {
+    assert.throws(() => guardQuery(sql), /not allowed/, sql);
+  }
+  assert.doesNotThrow(() => guardQuery('SELECT ST_Area(geom) AS area FROM parcels'));
+});

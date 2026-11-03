@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { applyGroups, diveIdentity, groupFromRow, parseDiveAccess, parseGroupResources } from '../lib/groups.mjs';
 import { canManagePeople, getViewer, publicViewer, viewerFromUser } from '../lib/viewer.mjs';
-import { applyPlan, desiredGrants, manualSql, planSync, syncAccess } from '../lib/access-sync.mjs';
+import { applyPlan, createGrantStore, desiredGrants, manualSql, planSync, requestSync, syncAccess } from '../lib/access-sync.mjs';
 import { createMotherDuckAdmin, quoteIdent } from '../lib/motherduck-admin.mjs';
 import { createSetupStore, setupUrl } from '../lib/account-setup.mjs';
 import { createStatements } from '../lib/app-db-schema.mjs';
@@ -28,14 +28,26 @@ test('an empty Dive list means none, so unticking every Dive no longer grants al
 
 test('group access adds to personal access, and one data group sets the MotherDuck identity', () => {
   const own = viewerFromUser({ id: 'u1', diveAccess: '', chatAccess: false });
+  const team = applyGroups(own, [{ ...finance, manager: true }, { ...finance, id: 'g-ops', name: 'Ops', dives: ['explorer'], chat: true }]);
+  assert.deepEqual(team.dives.sort(), ['explorer', 'overview']);
+  assert.equal(team.chat, true);
   const viewer = applyGroups(own, [{ ...finance, manager: true }, acme]);
-  assert.deepEqual(viewer.dives.sort(), ['explorer', 'overview']);
+  // Every member of a data group shares its service account, so the group alone decides.
+  assert.deepEqual(viewer.dives, ['explorer']);
   assert.equal(viewer.chat, true);
   assert.deepEqual(viewer.managerOf, ['g-fin']);
   assert.equal(viewer.dataGroup.serviceAccount, 'acme_viewer');
   assert.equal(canManagePeople(viewer), true);
   assert.deepEqual(publicViewer(viewer).groups, ['Finance', 'Acme']);
-  assert.equal(applyGroups(viewerFromUser({ id: 'u2', diveAccess: 'overview' }), [{ ...acme, dives: '*' }]).dives, '*');
+  assert.equal(applyGroups(viewerFromUser({ id: 'u2', diveAccess: 'overview' }), [{ ...finance, dives: '*' }]).dives, '*');
+  assert.deepEqual(applyGroups(viewerFromUser({ id: 'u3', diveAccess: '*', chatAccess: true }), [{ ...acme, chat: false }]).dives, ['explorer'], 'personal access never widens a data group');
+});
+
+test('a data group\'s service account gets only the group\'s Dives, whatever its members have on their own', () => {
+  const users = [{ id: 'lena', diveAccess: '*', chatAccess: true, motherduckUser: 'lena@example.com' }];
+  const memberships = [{ userId: 'lena', groupId: 'g-acme', manager: false }, { userId: 'lena', groupId: 'g-fin', manager: false }];
+  const want = desiredGrants({ users, groups: [{ ...acme, resources: {} }, { ...finance, dives: ['explorer'] }], memberships, dives });
+  assert.deepEqual(want.map(item => [item.grantee, item.url]), [['acme_viewer', SHARE_DEMO]], 'nothing for lena herself, and nothing extra for the account');
 });
 
 test('a data group replaces the Dive identity and databases by alias, and chat follows the alias', () => {
@@ -104,7 +116,7 @@ test('the plan grants what is missing and removes only rows the app recorded', (
   assert.equal(quoteIdent('we"ird'), '"we""ird"');
 });
 
-function fakeMotherDuck({ shares = {}, existingGrants = [] } = {}) {
+function fakeMotherDuck({ shares = {}, existingGrants = [], attached = {} } = {}) {
   const log = [];
   const owner = async (sql) => {
     log.push(['owner', sql]);
@@ -116,7 +128,11 @@ function fakeMotherDuck({ shares = {}, existingGrants = [] } = {}) {
   return {
     log, configured: () => true,
     asOwner: run => run(owner),
-    asServiceAccount: (username, run) => run(async sql => { log.push([username, sql]); return []; }),
+    asServiceAccount: (username, run) => run(async sql => {
+      log.push([username, sql]);
+      const alias = /database_name = '([^']+)'/.exec(sql)?.[1];
+      return alias && (attached[username] ?? []).includes(alias) ? [{ database_name: alias }] : [];
+    }),
   };
 }
 const memoryGrants = () => {
@@ -127,7 +143,7 @@ const memoryGrants = () => {
 test('applying grants, attaches for service accounts, and never revokes access the app did not give', async () => {
   const md = fakeMotherDuck({
     shares: { [SHARE_A]: { name: 'acme_share', access: 'RESTRICTED' }, [SHARE_DEMO]: { name: 'demo_share', access: 'ORGANIZATION' } },
-    existingGrants: [],
+    existingGrants: [{ grantee_name: 'old', grantee_type: 'user' }, { grantee_name: 'had_it', grantee_type: 'user' }],
   });
   const grants = memoryGrants();
   const plan = {
@@ -149,6 +165,32 @@ test('applying grants, attaches for service accounts, and never revokes access t
   assert.equal(saved.state, 'synced');
   assert.equal(saved.granted_by_app, true);
   assert.equal(saved.attached_by_app, true);
+  assert.ok(sql.indexOf('owner: REVOKE READ ON SHARE "acme_share" FROM USER "old"') < sql.indexOf('owner: GRANT READ ON SHARE "acme_share" TO USER "acme_viewer"'), 'removals run before grants');
+});
+
+test('an alias moved to another share is detached first, and an alias the account already had is never claimed', async () => {
+  const md = fakeMotherDuck({ shares: { [SHARE_A]: { name: 'acme_share', access: 'RESTRICTED' }, [SHARE_DEMO]: { name: 'demo_share', access: 'RESTRICTED' } }, existingGrants: [{ grantee_name: 'acme_viewer', grantee_type: 'user' }] });
+  const grants = memoryGrants();
+  const old = { grantee: 'acme_viewer', grantee_kind: 'service_account', share_url: SHARE_DEMO, alias: 'demo', share_name: 'demo_share', granted_by_app: true, attached_by_app: true, state: 'synced' };
+  await applyPlan({ grant: [{ grantee: 'acme_viewer', kind: 'service_account', url: SHARE_A, alias: 'demo' }], revoke: [old] }, { md, grants });
+  const sql = md.log.map(([who, text]) => `${who}: ${text}`);
+  assert.ok(sql.indexOf('acme_viewer: DETACH DATABASE IF EXISTS "demo"') < sql.indexOf(`acme_viewer: ATTACH IF NOT EXISTS '${SHARE_A}' AS "demo"`));
+  assert.ok(!sql.some(line => line.includes('GRANT READ ON SHARE "acme_share"')), 'a grant the account already holds is not made twice');
+  assert.equal(grants.rows.get(`acme_viewer\n${SHARE_A}`).granted_by_app, false);
+
+  const md2 = fakeMotherDuck({ shares: { [SHARE_A]: { name: 'acme_share', access: 'ORGANIZATION' } }, attached: { acme_viewer: ['demo'] } });
+  const grants2 = memoryGrants();
+  await applyPlan({ grant: [{ grantee: 'acme_viewer', kind: 'service_account', url: SHARE_A, alias: 'demo' }], revoke: [] }, { md: md2, grants: grants2 });
+  assert.ok(!md2.log.some(([, text]) => text.startsWith('ATTACH')));
+  assert.equal(grants2.rows.get(`acme_viewer\n${SHARE_A}`).attached_by_app, false, 'never detached later');
+});
+
+test('a removal checks the grant is still there, so a grant someone already removed is not an error', async () => {
+  const md = fakeMotherDuck({ shares: {}, existingGrants: [] });
+  const grants = memoryGrants();
+  const result = await applyPlan({ grant: [], revoke: [{ grantee: 'old', grantee_kind: 'user', share_url: SHARE_A, alias: 'demo', share_name: 'acme_share', granted_by_app: true }] }, { md, grants });
+  assert.deepEqual(result, { synced: 0, failed: 0, revoked: 1 });
+  assert.ok(!md.log.some(([, text]) => text.startsWith('REVOKE')));
 });
 
 test('an existing grant is recorded as not the app\'s, and an unowned share fails with a clear reason', async () => {
@@ -162,22 +204,72 @@ test('an existing grant is recorded as not the app\'s, and an unowned share fail
   assert.match(failed.detail, /does not own this share/);
 });
 
-test('without the admin token the sync records waiting grants and changes nothing in MotherDuck', async () => {
-  const tables = { user: [{ id: 'maya', diveAccess: 'explorer', motherduckUser: 'maya' }], md_access_grant: [] };
+function manualDatabase(users) {
+  const tables = { user: users, md_access_grant: new Map() };
   const query = async (text, values = []) => {
     if (text.startsWith('SELECT id, name, username')) return tables.user;
     if (text.includes('FROM access_group g')) return [];
     if (text.includes('FROM access_group_member m JOIN "user"')) return [];
-    if (text.startsWith('SELECT grantee')) return tables.md_access_grant;
-    if (text.startsWith('INSERT INTO md_access_grant')) { tables.md_access_grant.push({ grantee: values[0], share_url: values[2], state: values[5] }); return []; }
+    if (text.startsWith('SELECT grantee')) return [...tables.md_access_grant.values()];
+    if (text.startsWith('INSERT INTO md_access_grant')) {
+      const [grantee, grantee_kind, share_url, alias, share_name, state, granted_by_app, attached_by_app, detail] = values;
+      tables.md_access_grant.set(`${grantee}\n${share_url}`, { grantee, grantee_kind, share_url, alias, share_name, state, granted_by_app, attached_by_app, detail });
+      return [];
+    }
+    if (text.startsWith('DELETE FROM md_access_grant WHERE grantee')) { tables.md_access_grant.delete(`${values[0]}\n${values[1]}`); return []; }
+    if (text.startsWith('UPDATE md_access_grant')) { const done = [...tables.md_access_grant.values()].filter(row => row.state === values[2]); for (const row of done) row.state = values[0]; return done; }
+    if (text.startsWith('DELETE FROM md_access_grant WHERE state')) { const gone = [...tables.md_access_grant.values()].filter(row => row.state === values[0]); for (const row of gone) tables.md_access_grant.delete(`${row.grantee}\n${row.share_url}`); return gone; }
     return [];
   };
+  return { tables, query };
+}
+
+test('without the admin token the sync records waiting grants and changes nothing in MotherDuck', async () => {
+  const { tables, query } = manualDatabase([{ id: 'maya', diveAccess: 'explorer', motherduckUser: 'maya' }]);
   const md = { configured: () => false, asOwner: () => { throw new Error('must not connect'); } };
   const result = await syncAccess({ query, md, dives });
   assert.equal(result.mode, 'manual');
   assert.equal(result.pending, 1);
   assert.match(result.sql, /TO USER "maya"/);
-  assert.deepEqual(tables.md_access_grant.map(row => row.state), ['pending']);
+  assert.deepEqual([...tables.md_access_grant.values()].map(row => row.state), ['pending']);
+});
+
+test('in manual mode taking access away lists the REVOKE, and marking the SQL done settles both', async () => {
+  const { tables, query } = manualDatabase([{ id: 'maya', diveAccess: 'explorer', motherduckUser: 'maya' }]);
+  const md = { configured: () => false };
+  await syncAccess({ query, md, dives });
+  await createGrantStore(query).confirmManual();
+  assert.equal([...tables.md_access_grant.values()][0].state, 'synced', 'the owner ran the GRANT');
+  tables.user[0].banned = true;
+  const result = await syncAccess({ query, md, dives });
+  assert.equal(result.removing, 1);
+  assert.match(result.sql, /REVOKE READ ON SHARE <name of md:_share\/demo_data\/[0-9a-f]+> FROM USER "maya";/);
+  assert.equal([...tables.md_access_grant.values()][0].state, 'removing', 'kept until the owner says it is done');
+  assert.match((await syncAccess({ query, md, dives })).sql, /REVOKE/, 'the REVOKE stays listed until confirmed');
+  await createGrantStore(query).confirmManual();
+  assert.equal(tables.md_access_grant.size, 0);
+});
+
+test('one sync runs at a time across instances, and a change during a run is folded into one more run', async () => {
+  const lease = { holder: null, again: false };
+  const lock = {
+    acquire: async holder => (lease.holder ? false : ((lease.holder = holder), true)),
+    markAgain: async () => (lease.holder ? ((lease.again = true), true) : false),
+    takeAgain: async holder => (lease.holder === holder && lease.again ? ((lease.again = false), true) : false),
+    release: async holder => (lease.holder === holder && !lease.again ? ((lease.holder = null), true) : false),
+    abandon: async () => { lease.holder = null; },
+  };
+  lease.holder = 'other-instance';
+  assert.deepEqual(await requestSync({ lock }), { mode: 'queued' });
+  assert.equal(lease.again, true, 'the running instance is asked to run again');
+  lease.holder = null; lease.again = false;
+  let runs = 0;
+  const { query } = manualDatabase([]);
+  const counting = async (text, values) => { if (text.startsWith('SELECT id, name, username')) { runs += 1; if (runs === 1) lease.again = true; } return query(text, values); };
+  const result = await requestSync({ lock, query: counting, md: { configured: () => false }, dives });
+  assert.equal(result.mode, 'manual');
+  assert.equal(runs, 2);
+  assert.equal(lease.holder, null, 'the lease is released');
 });
 
 test('MotherDuck REST calls send the admin token only to MotherDuck and keep error text short and redacted', async () => {
@@ -238,4 +330,86 @@ test('the migration creates the group, grant and setup tables and the MotherDuck
   const sql = createStatements(authOptions({ SESSION_SECRET: 'unit-test-secret-with-at-least-32-characters' })).join('\n');
   for (const table of ['access_group', 'access_group_member', 'md_access_grant', 'account_setup']) assert.match(sql, new RegExp(`CREATE TABLE IF NOT EXISTS ${table} `));
   assert.match(sql, /"motherduckUser" VARCHAR/);
+});
+
+// A tiny app database for the manager rules: users, memberships and linked sign-in accounts.
+function peopleDatabase({ users, members, accounts = [] }) {
+  return async (text, values = []) => {
+    if (text.startsWith('SELECT role FROM "user"')) return users.filter(user => user.id === values[0]);
+    if (text.startsWith('SELECT role, banned FROM "user"')) return users.filter(user => user.id === values[0]);
+    if (text.startsWith('SELECT group_id, manager FROM access_group_member')) return members.filter(row => row.user_id === values[0]);
+    if (text.startsWith('SELECT group_id FROM access_group_member')) return members.filter(row => row.user_id === values[0] && row.manager);
+    if (text.startsWith('SELECT 1 AS found FROM account')) return accounts.filter(row => row.userId === values[0] && row.providerId !== values[1]);
+    if (text.startsWith('SELECT "banReason"')) return users.filter(user => user.id === values[0]);
+    return [];
+  };
+}
+
+test('a group manager reaches only people who belong to nothing but the groups they manage', async () => {
+  const { createGroupStore } = await import('../lib/groups.mjs');
+  const query = peopleDatabase({
+    users: [{ id: 'lena', role: 'user' }, { id: 'jules', role: 'user' }, { id: 'both', role: 'user' }, { id: 'boss', role: 'admin' }, { id: 'peer', role: 'user' }],
+    members: [
+      { user_id: 'lena', group_id: 'g-acme', manager: true }, { user_id: 'jules', group_id: 'g-acme', manager: false },
+      { user_id: 'both', group_id: 'g-acme', manager: false }, { user_id: 'both', group_id: 'g-globex', manager: false },
+      { user_id: 'boss', group_id: 'g-acme', manager: false }, { user_id: 'peer', group_id: 'g-acme', manager: true },
+    ],
+  });
+  const groups = createGroupStore(query);
+  assert.deepEqual(await groups.managedBy('lena'), ['g-acme']);
+  assert.equal(await groups.managerReaches(['g-acme'], 'jules'), true);
+  assert.equal(await groups.managerReaches(['g-acme'], 'both'), false, 'also in another customer\'s group');
+  assert.equal(await groups.managerReaches(['g-acme'], 'boss'), false, 'administrators stay out of reach');
+  assert.equal(await groups.managerReaches(['g-acme'], 'peer'), false, 'another manager stays out of reach');
+  assert.equal(await groups.managerReaches(['g-acme'], 'nobody'), false);
+});
+
+test('a manager\'s setup link stops working once the person is out of the manager\'s reach or uses single sign-on', async () => {
+  const users = [{ id: 'lena', role: 'user', banned: false }, { id: 'jules', role: 'user', banned: false, name: 'Jules', username: 'jules' }];
+  const members = [{ user_id: 'lena', group_id: 'g-acme', manager: true }, { user_id: 'jules', group_id: 'g-acme', manager: false }];
+  const accounts = [];
+  const base = peopleDatabase({ users, members, accounts });
+  const query = async (text, values) => (text.startsWith('SELECT u.id') ? [{ id: 'jules', name: 'Jules', username: 'jules', created_by: 'lena' }] : base(text, values));
+  const store = createSetupStore(query);
+  const token = 'a'.repeat(43);
+  assert.ok(await store.peek(token));
+  members.push({ user_id: 'jules', group_id: 'g-globex', manager: false });
+  assert.equal(await store.peek(token), null, 'joined another customer\'s group');
+  members.pop();
+  accounts.push({ userId: 'jules', providerId: 'okta' });
+  assert.equal(await store.peek(token), null, 'a manager never adds a password beside single sign-on');
+  accounts.pop();
+  users[0].banned = true;
+  assert.equal(await store.peek(token), null, 'the manager was disabled');
+  users[0].banned = false; users[1].role = 'admin';
+  assert.equal(await store.peek(token), null, 'the person became an administrator');
+});
+
+test('a manager cannot re-enable someone an administrator disabled, and cannot make setup links for single sign-on users', async () => {
+  const { BANNED_BY, createPeopleService } = await import('../lib/people.mjs');
+  const users = [{ id: 'jules', role: 'user', banReason: BANNED_BY.admin }];
+  const query = peopleDatabase({ users, members: [], accounts: [{ userId: 'jules', providerId: 'okta' }] });
+  const updates = [];
+  const ctx = { internalAdapter: { updateUser: async (id, data) => updates.push([id, data]), deleteUserSessions: async () => {} } };
+  const people = createPeopleService(query, { auth: () => ({ $context: Promise.resolve(ctx) }), setup: { revokeFor: async () => {}, create: async () => ({ token: 't', expiresAt: new Date() }) } });
+  const manager = { all: false, groups: ['g-acme'] };
+  await assert.rejects(people.setBanned('jules', false, { scope: manager }), error => error.message === 'disabled_by_admin');
+  await people.setBanned('jules', true, { scope: manager });
+  assert.equal(updates[0][1].banReason, BANNED_BY.manager);
+  users[0].banReason = BANNED_BY.manager;
+  await people.setBanned('jules', false, { scope: manager });
+  assert.equal(updates[1][1].banned, false);
+  await assert.rejects(people.setupLink('jules', { viewer: { id: 'lena' }, scope: manager, origin: 'https://x' }), error => error.message === 'single_sign_on_user');
+  assert.ok((await people.setupLink('jules', { viewer: { id: 'boss' }, scope: { all: true }, origin: 'https://x' })).setupUrl);
+});
+
+test('single sign-on puts verified emails from a mapped domain into its group, and can start everyone else with nothing', async () => {
+  const { domainGroups, newAccountDefaults, allowedEmailDomains } = await import('../lib/auth.mjs');
+  const env = { AUTH_DOMAIN_GROUPS: 'acme.com=Acme, not a domain=X, globex.co.uk = Globex Ltd', AUTH_ALLOWED_EMAIL_DOMAINS: 'example.com' };
+  assert.deepEqual([...domainGroups(env)], [['acme.com', 'Acme'], ['globex.co.uk', 'Globex Ltd']]);
+  assert.deepEqual(allowedEmailDomains(env).sort(), ['acme.com', 'example.com', 'globex.co.uk']);
+  assert.deepEqual(newAccountDefaults({ email: 'a@acme.com', emailVerified: true }, env), { group: 'Acme', data: { diveAccess: '', chatAccess: false } });
+  assert.deepEqual(newAccountDefaults({ email: 'a@acme.com', emailVerified: false }, env), { group: null, data: { diveAccess: '', chatAccess: false } }, 'an unverified email gets nothing');
+  assert.deepEqual(newAccountDefaults({ email: 'a@example.com' }, env).data, { diveAccess: '*', chatAccess: true });
+  assert.deepEqual(newAccountDefaults({ email: 'a@example.com' }, { ...env, AUTH_NEW_ACCOUNT_ACCESS: 'none' }).data, { diveAccess: '', chatAccess: false });
 });

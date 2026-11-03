@@ -3,6 +3,7 @@ import { accountsEnabled } from '../../../lib/auth.mjs';
 import { createSetupStore } from '../../../lib/account-setup.mjs';
 import { sameOrigin } from '../../../lib/security.mjs';
 import { DEMO_READ_ONLY, publicDemo } from '../../../lib/public-demo.mjs';
+import { audit } from '../../../lib/audit.mjs';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -26,6 +27,7 @@ export async function POST(request) {
     }
     if (body.password.length < 12) return failure('password_too_short', 400);
     const person = await store.redeem(body.token, body.password);
+    if (person) await audit({ id: person.userId, username: person.username }, 'person.password_chosen', { id: person.userId, label: person.username });
     return person ? Response.json({ username: person.username }, { headers: NO_STORE }) : failure('setup_link_invalid', 404);
   } catch (error) {
     console.error('account_setup_failed', error?.code ?? error?.name);
