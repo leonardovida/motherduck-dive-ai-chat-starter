@@ -48,7 +48,7 @@ test('production signs in with the configured password only', async () => {
     const value = ok.headers['Set-Cookie'].split(';')[0].slice(COOKIE.length + 1);
     assert.equal(validSession(value, SECRET), true);
     const status = response(); await auth(request('GET', { headers: { cookie: `${COOKIE}=${value}` } }), status);
-    assert.deepEqual(status.data, { authenticated: true, appTitle: 'Acme demo' });
+    assert.deepEqual(status.data, { mode: 'password', authenticated: true, appTitle: 'Acme demo' });
   });
 });
 

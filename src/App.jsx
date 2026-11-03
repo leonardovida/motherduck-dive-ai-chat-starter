@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from "@/components/ui/input-group";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   ResizableHandle,
@@ -52,6 +53,8 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   RefreshCw,
+  ShieldCheck,
+  KeyRound,
   Unplug,
   Settings2,
   Sun,
@@ -101,6 +104,16 @@ const COPY = {
   authUnavailable: "Sign in is temporarily unavailable. Try again shortly.",
   requiredPassword: "Enter the password to continue.",
   devPasswordLead: "Local development password:",
+  accountsBody: "Sign in with your username and password.",
+  username: "Username",
+  requiredCredentials: "Enter your username and password.",
+  invalidCredentials: "That username and password were not accepted.",
+  banned: "This account is disabled. Contact your administrator.",
+  ssoDivider: "or",
+  ssoWith: "Continue with {label}",
+  ssoFailed: "Single sign-on did not complete. Try again or contact your administrator.",
+  admin: "Admin",
+  signedInAs: "Signed in as {name}",
   dives: "Dives",
   chooseDive: "Choose a Dive.",
   resizeSidebar: "Resize sidebar",
@@ -213,22 +226,27 @@ function ThemeButton({ theme, setTheme }) {
   );
 }
 
-function LoginView({ appTitle, devPassword, theme, setTheme, onSubmit }) {
+function LoginView({ appTitle, devPassword, mode, sso = [], theme, setTheme, onSubmit, onSso }) {
+  const accounts = mode === "accounts";
+  const [username, setUsername] = React.useState("");
   const [password, setPassword] = React.useState("");
   const [visible, setVisible] = React.useState(false);
-  const [state, setState] = React.useState({ busy: false, error: "" });
+  // Better Auth returns here with ?sso=failed when a provider or the domain allowlist refused.
+  const [state, setState] = React.useState(() => ({ busy: false, error: typeof window !== "undefined" && new URLSearchParams(window.location.search).get("sso") === "failed" ? COPY.ssoFailed : "" }));
 
   const submit = async (event) => {
     event.preventDefault();
-    if (!password) {
-      setState({ busy: false, error: COPY.requiredPassword });
+    if (!password || (accounts && !username.trim())) {
+      setState({ busy: false, error: accounts ? COPY.requiredCredentials : COPY.requiredPassword });
       return;
     }
     setState({ busy: true, error: "" });
-    const result = await onSubmit(password);
+    const result = await onSubmit(accounts ? { username: username.trim(), password } : { password });
     if (!result.ok) {
       const error = {
         invalid_password: COPY.invalidPassword,
+        invalid_credentials: COPY.invalidCredentials,
+        banned: COPY.banned,
         too_many_attempts: COPY.tooManyAttempts,
         auth_not_configured: COPY.authNotConfigured,
       }[result.error] || COPY.authUnavailable;
@@ -249,10 +267,16 @@ function LoginView({ appTitle, devPassword, theme, setTheme, onSubmit }) {
         <Card className="login-card">
           <CardHeader>
             <CardTitle id="auth-title" className="login-title">{COPY.signInTitle}</CardTitle>
-            <CardDescription>{COPY.signInBody}</CardDescription>
+            <CardDescription>{accounts ? COPY.accountsBody : COPY.signInBody}</CardDescription>
           </CardHeader>
           <CardContent>
             <form className="login-form" onSubmit={submit} noValidate aria-labelledby="auth-title">
+              {accounts && (
+                <div className="login-field">
+                  <Label htmlFor="username-input">{COPY.username}</Label>
+                  <Input id="username-input" value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" autoCapitalize="none" spellCheck={false} autoFocus aria-invalid={Boolean(state.error)} aria-describedby="auth-status" disabled={state.busy} />
+                </div>
+              )}
               <div className="login-field">
                 <Label htmlFor="password-input">{COPY.password}</Label>
                 <InputGroup className="login-input">
@@ -262,7 +286,7 @@ function LoginView({ appTitle, devPassword, theme, setTheme, onSubmit }) {
                     value={password}
                     onChange={(event) => setPassword(event.target.value)}
                     autoComplete="current-password"
-                    autoFocus
+                    autoFocus={!accounts}
                     aria-invalid={Boolean(state.error)}
                     aria-describedby="auth-status"
                     disabled={state.busy}
@@ -282,6 +306,16 @@ function LoginView({ appTitle, devPassword, theme, setTheme, onSubmit }) {
                 {state.busy ? COPY.signingIn : COPY.signIn}
               </Button>
             </form>
+            {accounts && sso.length > 0 && (
+              <div className="login-sso">
+                <p className="login-sso-divider"><span>{COPY.ssoDivider}</span></p>
+                {sso.map((provider) => (
+                  <Button key={provider.id} type="button" variant="outline" className="login-submit" disabled={state.busy} onClick={() => { setState({ busy: true, error: "" }); onSso(provider.id).catch(() => setState({ busy: false, error: COPY.ssoFailed })); }}>
+                    <KeyRound data-icon="inline-start" aria-hidden="true" />{fill(COPY.ssoWith, { label: provider.label })}
+                  </Button>
+                ))}
+              </div>
+            )}
           </CardContent>
           {devPassword && (
             <CardFooter className="login-footer">
@@ -294,7 +328,7 @@ function LoginView({ appTitle, devPassword, theme, setTheme, onSubmit }) {
   );
 }
 
-function DiveSidebar({ dives, selectedKey, onSelect, onSignOut }) {
+function DiveSidebar({ dives, selectedKey, onSelect, onSignOut, user }) {
   const { isMobile, setOpenMobile } = useSidebar();
   const select = (key) => {
     onSelect(key);
@@ -330,8 +364,13 @@ function DiveSidebar({ dives, selectedKey, onSelect, onSignOut }) {
       </SidebarContent>
       <SidebarFooter className="sidebar-footer">
         <SidebarMenu>
+          {user?.isAdmin && (
+            <SidebarMenuItem>
+              <SidebarMenuButton className="sign-out-button" render={<a href="/admin" />}><ShieldCheck aria-hidden="true" /><span>{COPY.admin}</span></SidebarMenuButton>
+            </SidebarMenuItem>
+          )}
           <SidebarMenuItem>
-            <SidebarMenuButton className="sign-out-button" onClick={onSignOut}><LogOut aria-hidden="true" /><span>{COPY.signOut}</span></SidebarMenuButton>
+            <SidebarMenuButton className="sign-out-button" onClick={onSignOut} title={user?.name ? fill(COPY.signedInAs, { name: user.username || user.name }) : undefined}><LogOut aria-hidden="true" /><span>{COPY.signOut}</span></SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarFooter>
@@ -576,7 +615,7 @@ function DiveFrame({ theme, dive, onStatusChange, onStateChange }) {
   );
 }
 
-function MainContent({ appTitle, theme, setTheme, dive, dives, onSelectDive, onSignOut }) {
+function MainContent({ appTitle, theme, setTheme, dive, dives, onSelectDive, onSignOut, user }) {
   const isMobile = useIsMobile();
   const [frameStatus, setFrameStatus] = React.useState("loading");
   const [chatOpen, setChatOpen] = React.useState(false);
@@ -632,7 +671,7 @@ function MainContent({ appTitle, theme, setTheme, dive, dives, onSelectDive, onS
     }
   }, [sidebarCollapsed]);
 
-  const sidebar = <DiveSidebar dives={dives} selectedKey={dive.key} onSelect={onSelectDive} onSignOut={onSignOut} />;
+  const sidebar = <DiveSidebar dives={dives} selectedKey={dive.key} onSelect={onSelectDive} onSignOut={onSignOut} user={user} />;
   const sidebarLabel = sidebarCollapsed ? COPY.expandSidebar : COPY.collapseSidebar;
 
   const header = (
@@ -723,7 +762,7 @@ function MainContent({ appTitle, theme, setTheme, dive, dives, onSelectDive, onS
   );
 }
 
-function AuthenticatedApp({ appTitle, theme, setTheme, dives, selectedKey, setSelectedKey, onSignOut }) {
+function AuthenticatedApp({ appTitle, theme, setTheme, dives, selectedKey, setSelectedKey, onSignOut, user }) {
   const dive = dives.find((entry) => entry.key === selectedKey) || dives[0];
   React.useEffect(() => {
     if (dive?.key && dive.key !== selectedKey) setSelectedKey(dive.key);
@@ -733,7 +772,7 @@ function AuthenticatedApp({ appTitle, theme, setTheme, dives, selectedKey, setSe
   }, []);
   return (
     <SidebarProvider defaultOpen>
-      <MainContent appTitle={appTitle} theme={theme} setTheme={setTheme} dive={dive} dives={dives} onSelectDive={setSelectedKey} onSignOut={onSignOut} />
+      <MainContent appTitle={appTitle} theme={theme} setTheme={setTheme} dive={dive} dives={dives} onSelectDive={setSelectedKey} onSignOut={onSignOut} user={user} />
     </SidebarProvider>
   );
 }
@@ -741,7 +780,7 @@ function AuthenticatedApp({ appTitle, theme, setTheme, dives, selectedKey, setSe
 export default function App() {
   const [theme, setTheme] = useStoredPreference("dive_app_theme", "light");
   const [diveKey, setDiveKey] = useStoredPreference("dive_app_dive", "");
-  const [auth, setAuth] = React.useState({ state: "checking", appTitle: COPY.defaultTitle, devPassword: "" });
+  const [auth, setAuth] = React.useState({ state: "checking", appTitle: COPY.defaultTitle, devPassword: "", mode: "password", sso: [], user: null });
   const [dives, setDives] = React.useState([]);
   const [divesState, setDivesState] = React.useState("loading");
 
@@ -773,6 +812,9 @@ export default function App() {
         state: authenticated ? "authenticated" : "unauthenticated",
         appTitle: typeof data?.appTitle === "string" && data.appTitle ? data.appTitle : COPY.defaultTitle,
         devPassword: typeof data?.devPassword === "string" ? data.devPassword : "",
+        mode: data?.mode === "accounts" ? "accounts" : "password",
+        sso: Array.isArray(data?.sso) ? data.sso : [],
+        user: data?.user || null,
       });
       if (authenticated) loadDives();
     } catch {
@@ -787,7 +829,18 @@ export default function App() {
     return () => window.clearTimeout(timer);
   }, [refreshAuth]);
 
-  const submitLogin = async (password) => {
+  const submitLogin = async ({ username, password }) => {
+    if (auth.mode === "accounts") {
+      try {
+        const { authClient } = await import("./lib/auth-client.js");
+        const { error } = await authClient.signIn.username({ username, password });
+        if (error) return { ok: false, error: error.status === 429 ? "too_many_attempts" : error.status === 403 ? "banned" : error.status === 401 ? "invalid_credentials" : "unavailable" };
+        await refreshAuth();
+        return { ok: true };
+      } catch {
+        return { ok: false, error: "unavailable" };
+      }
+    }
     try {
       const { response, data } = await jsonRequest("/api/auth", { method: "POST", body: JSON.stringify({ password }) });
       if (!response.ok || data?.authenticated !== true) return { ok: false, error: data?.error };
@@ -799,8 +852,19 @@ export default function App() {
     }
   };
 
+  const signInWithSso = async (provider) => {
+    const { authClient } = await import("./lib/auth-client.js");
+    const { error } = await authClient.signIn.social({ provider, callbackURL: "/", errorCallbackURL: "/?sso=failed" });
+    if (error) throw new Error("sso-failed");
+  };
+
   const signOut = async () => {
     try {
+      if (auth.mode === "accounts") {
+        const { authClient } = await import("./lib/auth-client.js");
+        const { error } = await authClient.signOut();
+        if (error) throw new Error("logout-failed");
+      }
       const { response } = await jsonRequest("/api/auth", { method: "DELETE" });
       if (!response.ok) throw new Error("logout-failed");
       await clearChatSessionHistory();
@@ -812,7 +876,7 @@ export default function App() {
   };
 
   if (auth.state === "checking") return <div className="boot-screen"><Spinner className="size-5" /><span>{COPY.loading}</span></div>;
-  if (auth.state === "unauthenticated") return <LoginView appTitle={auth.appTitle} devPassword={auth.devPassword} theme={theme} setTheme={setTheme} onSubmit={submitLogin} />;
+  if (auth.state === "unauthenticated") return <LoginView appTitle={auth.appTitle} devPassword={auth.devPassword} mode={auth.mode} sso={auth.sso} theme={theme} setTheme={setTheme} onSubmit={submitLogin} onSso={signInWithSso} />;
   if (divesState === "loading") return <div className="boot-screen"><Spinner className="size-5" /><span>{COPY.loadDives}</span></div>;
   if (divesState === "error" || dives.length === 0) {
     return (
@@ -827,5 +891,5 @@ export default function App() {
       </div>
     );
   }
-  return <AuthenticatedApp appTitle={auth.appTitle} theme={theme} setTheme={setTheme} dives={dives} selectedKey={diveKey} setSelectedKey={setDiveKey} onSignOut={signOut} />;
+  return <AuthenticatedApp appTitle={auth.appTitle} theme={theme} setTheme={setTheme} dives={dives} selectedKey={diveKey} setSelectedKey={setDiveKey} onSignOut={signOut} user={auth.user} />;
 }
