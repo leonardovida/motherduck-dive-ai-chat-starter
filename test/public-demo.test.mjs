@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { demoAllowsAuthRoute, publicDemo } from '../lib/public-demo.mjs';
+import { demoAllowsAuthRoute, demoDives, demoSignInUrl, publicDemo } from '../lib/public-demo.mjs';
 import { modelCatalog, resolveModel } from '../lib/chat-models.mjs';
 import { getViewer } from '../lib/viewer.mjs';
 
@@ -43,4 +43,17 @@ test('the account endpoint refuses changes in a public demo before reaching the 
   } finally {
     for (const key of ['MOTHERDUCK_APP_TOKEN', 'PUBLIC_DEMO', 'SESSION_SECRET']) if (key in saved) process.env[key] = saved[key]; else delete process.env[key];
   }
+});
+
+test('the demo sign-in link is shown only for https URLs', () => {
+  assert.equal(demoSignInUrl({}), '');
+  assert.equal(demoSignInUrl({ PUBLIC_DEMO_SIGN_IN_URL: 'javascript:alert(1)' }), '');
+  assert.equal(demoSignInUrl({ PUBLIC_DEMO_SIGN_IN_URL: 'http://example.com/readme' }), '');
+  assert.equal(demoSignInUrl({ PUBLIC_DEMO_SIGN_IN_URL: ' https://example.com/readme#demo ' }), 'https://example.com/readme#demo');
+});
+
+test('a public demo hides Dives that are not connected, unless none are', () => {
+  const on = { key: 'on', connected: true }, off = { key: 'off', connected: false };
+  assert.deepEqual(demoDives([on, off]), [on]);
+  assert.deepEqual(demoDives([off]), [off]);
 });

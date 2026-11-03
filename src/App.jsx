@@ -142,6 +142,10 @@ const COPY = {
   linkRequest: "The Dive wants to open a link",
   dismiss: "Dismiss",
   exportFailed: "Export failed. Try again.",
+  demoBadge: "Public demo",
+  demoBadgeHint: "Every screen is open to explore, and changes are switched off.",
+  demoSignIn: "This is a public demo.",
+  demoSignInLink: "Find the demo sign-in",
 };
 
 function fill(template, values) {
@@ -226,7 +230,7 @@ function ThemeButton({ theme, setTheme }) {
   );
 }
 
-function LoginView({ appTitle, devPassword, mode, sso = [], theme, setTheme, onSubmit, onSso }) {
+function LoginView({ appTitle, devPassword, mode, sso = [], demo, theme, setTheme, onSubmit, onSso }) {
   const accounts = mode === "accounts";
   const [username, setUsername] = React.useState("");
   const [password, setPassword] = React.useState("");
@@ -320,6 +324,11 @@ function LoginView({ appTitle, devPassword, mode, sso = [], theme, setTheme, onS
           {devPassword && (
             <CardFooter className="login-footer">
               <p>{COPY.devPasswordLead} <code>{devPassword}</code></p>
+            </CardFooter>
+          )}
+          {demo?.on && (
+            <CardFooter className="login-footer">
+              <p>{COPY.demoSignIn}{demo.signInUrl && <> <a href={demo.signInUrl} target="_blank" rel="noopener noreferrer">{COPY.demoSignInLink}</a></>}</p>
             </CardFooter>
           )}
         </Card>
@@ -615,7 +624,7 @@ function DiveFrame({ theme, dive, onStatusChange, onStateChange }) {
   );
 }
 
-function MainContent({ appTitle, theme, setTheme, dive, dives, onSelectDive, onSignOut, user }) {
+function MainContent({ appTitle, theme, setTheme, dive, dives, onSelectDive, onSignOut, user, demo }) {
   const isMobile = useIsMobile();
   const [frameStatus, setFrameStatus] = React.useState("loading");
   const [chatOpen, setChatOpen] = React.useState(false);
@@ -625,9 +634,11 @@ function MainContent({ appTitle, theme, setTheme, dive, dives, onSelectDive, onS
     const media = window.matchMedia("(min-width:1100px)");
     const update = () => setWideChat(media.matches);
     update();
+    // A demo leads with the assistant where there is room for it beside the Dive.
+    if (demo && media.matches) setChatOpen(true);
     media.addEventListener("change", update);
     return () => media.removeEventListener("change", update);
-  }, []);
+  }, [demo]);
   React.useEffect(() => { setDiveState({}); }, [dive.key]);
 
   const [sidebarDefaultWidth] = React.useState(() => {
@@ -694,6 +705,7 @@ function MainContent({ appTitle, theme, setTheme, dive, dives, onSelectDive, onS
         </BreadcrumbList>
       </Breadcrumb>
       <div className="workspace-topbar-actions">
+        {demo && <IconTip label={COPY.demoBadgeHint}><Badge variant="outline" className="demo-badge" tabIndex={0}>{COPY.demoBadge}</Badge></IconTip>}
         <Button variant={chatOpen ? "secondary" : "outline"} size="sm" className="chat-toggle" onClick={() => setChatOpen((value) => !value)} aria-pressed={chatOpen}>
           <MessageSquare data-icon="inline-start" aria-hidden="true" />{COPY.chat}
         </Button>
@@ -762,7 +774,7 @@ function MainContent({ appTitle, theme, setTheme, dive, dives, onSelectDive, onS
   );
 }
 
-function AuthenticatedApp({ appTitle, theme, setTheme, dives, selectedKey, setSelectedKey, onSignOut, user }) {
+function AuthenticatedApp({ appTitle, theme, setTheme, dives, selectedKey, setSelectedKey, onSignOut, user, demo }) {
   const dive = dives.find((entry) => entry.key === selectedKey) || dives[0];
   React.useEffect(() => {
     if (dive?.key && dive.key !== selectedKey) setSelectedKey(dive.key);
@@ -772,7 +784,7 @@ function AuthenticatedApp({ appTitle, theme, setTheme, dives, selectedKey, setSe
   }, []);
   return (
     <SidebarProvider defaultOpen>
-      <MainContent appTitle={appTitle} theme={theme} setTheme={setTheme} dive={dive} dives={dives} onSelectDive={setSelectedKey} onSignOut={onSignOut} user={user} />
+      <MainContent appTitle={appTitle} theme={theme} setTheme={setTheme} dive={dive} dives={dives} onSelectDive={setSelectedKey} onSignOut={onSignOut} user={user} demo={demo} />
     </SidebarProvider>
   );
 }
@@ -780,7 +792,7 @@ function AuthenticatedApp({ appTitle, theme, setTheme, dives, selectedKey, setSe
 export default function App() {
   const [theme, setTheme] = useStoredPreference("dive_app_theme", "light");
   const [diveKey, setDiveKey] = useStoredPreference("dive_app_dive", "");
-  const [auth, setAuth] = React.useState({ state: "checking", appTitle: COPY.defaultTitle, devPassword: "", mode: "password", sso: [], user: null });
+  const [auth, setAuth] = React.useState({ state: "checking", appTitle: COPY.defaultTitle, devPassword: "", mode: "password", sso: [], user: null, demo: { on: false, signInUrl: "" } });
   const [dives, setDives] = React.useState([]);
   const [divesState, setDivesState] = React.useState("loading");
 
@@ -815,6 +827,7 @@ export default function App() {
         mode: data?.mode === "accounts" ? "accounts" : "password",
         sso: Array.isArray(data?.sso) ? data.sso : [],
         user: data?.user || null,
+        demo: { on: data?.publicDemo === true, signInUrl: typeof data?.demoSignInUrl === "string" && data.demoSignInUrl.startsWith("https://") ? data.demoSignInUrl : "" },
       });
       if (authenticated) loadDives();
     } catch {
@@ -876,7 +889,7 @@ export default function App() {
   };
 
   if (auth.state === "checking") return <div className="boot-screen"><Spinner className="size-5" /><span>{COPY.loading}</span></div>;
-  if (auth.state === "unauthenticated") return <LoginView appTitle={auth.appTitle} devPassword={auth.devPassword} mode={auth.mode} sso={auth.sso} theme={theme} setTheme={setTheme} onSubmit={submitLogin} onSso={signInWithSso} />;
+  if (auth.state === "unauthenticated") return <LoginView appTitle={auth.appTitle} devPassword={auth.devPassword} mode={auth.mode} sso={auth.sso} demo={auth.demo} theme={theme} setTheme={setTheme} onSubmit={submitLogin} onSso={signInWithSso} />;
   if (divesState === "loading") return <div className="boot-screen"><Spinner className="size-5" /><span>{COPY.loadDives}</span></div>;
   if (divesState === "error" || dives.length === 0) {
     return (
@@ -891,5 +904,5 @@ export default function App() {
       </div>
     );
   }
-  return <AuthenticatedApp appTitle={auth.appTitle} theme={theme} setTheme={setTheme} dives={dives} selectedKey={diveKey} setSelectedKey={setDiveKey} onSignOut={signOut} user={auth.user} />;
+  return <AuthenticatedApp appTitle={auth.appTitle} theme={theme} setTheme={setTheme} dives={dives} selectedKey={diveKey} setSelectedKey={setDiveKey} onSignOut={signOut} user={auth.user} demo={auth.demo.on} />;
 }

@@ -6,6 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Spinner } from "@/components/ui/spinner";
+import { MessageResponse } from "@/components/ai-elements/message";
 import { authClient } from "@/lib/auth-client.js";
 
 // All interface text in one place, like the main app.
@@ -67,6 +68,7 @@ const COPY = {
   refresh: "Refresh",
   demoTitle: "Public demo",
   demoBody: "Every screen is open to explore. Changes are switched off, so the demo stays the same for every visitor.",
+  demoTry: ["Open Edit access on a person to see how Dives and AI chat are granted.", "Open Conversations to read questions other visitors asked, with the SQL, model and routing reason for each answer.", "Go back to the Dives, ask the chat a question, then find it here."],
   demoUnavailable: "This is not available in a public demo.",
 };
 const fill = (template, values) => String(template).replace(/\{(\w+)\}/g, (_, key) => String(values[key] ?? ""));
@@ -89,12 +91,22 @@ const randomPassword = () => {
   return btoa(String.fromCharCode(...bytes)).replace(/[+/=]/g, "").slice(0, 20);
 };
 
-// In a public demo every change stays visible but switched off, with the reason on hover.
-const ReadOnly = React.createContext("");
-function WriteButton({ disabled, ...props }) {
-  const reason = React.useContext(ReadOnly);
-  const button = <Button {...props} disabled={Boolean(reason) || disabled} />;
-  return reason ? <span title={reason} className="inline-flex">{button}</span> : button;
+// In a public demo every change stays visible but switched off. The control stays focusable,
+// and pressing it says why, so the reason reaches keyboard and touch users, not only on hover.
+const ReadOnly = React.createContext({ reason: "", explain: () => {} });
+function WriteButton({ disabled, onClick, type, className, ...props }) {
+  const { reason, explain } = React.useContext(ReadOnly);
+  if (!reason) return <Button type={type} disabled={disabled} onClick={onClick} className={className} {...props} />;
+  // A submit button keeps its type, so pressing Enter in the form reaches the form's own check.
+  return <Button {...props} type={type} aria-disabled="true" title={reason} className={`opacity-50 ${className || ""}`} onClick={type === "submit" ? undefined : explain} />;
+}
+
+function DemoToast({ message }) {
+  return (
+    <div role="status" aria-live="polite" className="pointer-events-none fixed inset-x-0 bottom-4 z-50 flex justify-center px-4">
+      {message && <p className="rounded-md border border-border bg-popover px-3 py-2 text-sm text-popover-foreground shadow-md">{message}</p>}
+    </div>
+  );
 }
 
 function Notice({ message, tone = "muted" }) {
@@ -128,8 +140,10 @@ function CreateUser({ dives, onCreated }) {
   const [form, setForm] = React.useState(blank);
   const [state, setState] = React.useState({ busy: false, message: "", tone: "muted" });
   const set = (key, value) => setForm(current => ({ ...current, [key]: value }));
+  const { reason, explain } = React.useContext(ReadOnly);
   const submit = async event => {
     event.preventDefault();
+    if (reason) return explain();
     const username = form.username.trim().toLowerCase();
     if (!/^[a-z0-9_.]{2,40}$/.test(username) || form.password.length < 12) {
       setState({ busy: false, message: fill(COPY.failed, { reason: "use a 2-40 character username of letters, digits, dots or underscores and a password of 12+ characters" }), tone: "error" });
@@ -177,6 +191,7 @@ function CreateUser({ dives, onCreated }) {
 }
 
 function UserRow({ user, dives, self, onChanged }) {
+  const { reason, explain } = React.useContext(ReadOnly);
   const [mode, setMode] = React.useState(null);
   const [password, setPassword] = React.useState("");
   const [access, setAccess] = React.useState(accessOf(user));
@@ -207,7 +222,7 @@ function UserRow({ user, dives, self, onChanged }) {
         </span>
       </div>
       {mode === "password" && (
-        <form className="flex flex-wrap items-center gap-2" onSubmit={event => { event.preventDefault(); if (password.length >= 12) run(() => unwrap(authClient.admin.setUserPassword({ userId: user.id, newPassword: password }))); }}>
+        <form className="flex flex-wrap items-center gap-2" onSubmit={event => { event.preventDefault(); if (reason) explain(); else if (password.length >= 12) run(() => unwrap(authClient.admin.setUserPassword({ userId: user.id, newPassword: password }))); }}>
           <Input className="max-w-xs" aria-label={COPY.password} value={password} onChange={e => setPassword(e.target.value)} autoComplete="new-password" spellCheck={false} placeholder={COPY.password} />
           <Button type="button" variant="outline" size="sm" onClick={() => setPassword(randomPassword())}>{COPY.generate}</Button>
           <WriteButton type="submit" size="sm" disabled={state.busy || password.length < 12}>{COPY.save}</WriteButton>
@@ -239,7 +254,7 @@ function UsersTab({ users, dives, me, reload, loading }) {
   );
 }
 
-function ConversationDetail({ id, onDeleted }) {
+function ConversationDetail({ id, diveTitle, onDeleted }) {
   const [conversation, setConversation] = React.useState(null);
   const [error, setError] = React.useState("");
   const [confirming, setConfirming] = React.useState(false);
@@ -264,17 +279,20 @@ function ConversationDetail({ id, onDeleted }) {
   return (
     <div className="grid gap-4">
       <div className="flex flex-wrap items-start gap-2">
-        <div className="mr-auto"><h3 className="font-medium">{conversation.title}</h3><p className="text-xs text-muted-foreground">{conversation.user_label} · {conversation.dive_key} · {dateTime(conversation.created_at)}</p></div>
-        <Button size="sm" variant="outline" onClick={exportJson}><Download data-icon="inline-start" aria-hidden="true" />{COPY.exportJson}</Button>
-        {confirming
-          ? <Button size="sm" variant="destructive" onClick={remove}><Trash2 data-icon="inline-start" aria-hidden="true" />{COPY.confirmRemove}</Button>
-          : <WriteButton size="sm" variant="ghost" onClick={() => setConfirming(true)}><Trash2 data-icon="inline-start" aria-hidden="true" />{COPY.remove}</WriteButton>}
+        <div className="mr-auto min-w-0"><h3 className="font-medium">{conversation.title}</h3><p className="text-xs text-muted-foreground">{conversation.user_label} · {diveTitle(conversation.dive_key)} · {dateTime(conversation.created_at)}</p></div>
+        <span className="flex shrink-0 gap-2">
+          <Button size="sm" variant="outline" onClick={exportJson}><Download data-icon="inline-start" aria-hidden="true" />{COPY.exportJson}</Button>
+          {confirming
+            ? <Button size="sm" variant="destructive" onClick={remove}><Trash2 data-icon="inline-start" aria-hidden="true" />{COPY.confirmRemove}</Button>
+            : <WriteButton size="sm" variant="ghost" onClick={() => setConfirming(true)}><Trash2 data-icon="inline-start" aria-hidden="true" />{COPY.remove}</WriteButton>}
+        </span>
       </div>
       <ol className="grid gap-3">
         {conversation.messages.map(message => (
           <li key={message.id} className={message.role === "user" ? "rounded-md bg-muted px-3 py-2" : "rounded-md border border-border px-3 py-2"}>
             <p className="mb-1 text-xs font-medium text-muted-foreground">{message.role === "user" ? COPY.question : COPY.answer} · {dateTime(message.created_at)}</p>
-            <p className="whitespace-pre-wrap text-sm">{message.content}</p>
+            {/* Answers render as the person saw them in the chat; questions stay plain text. */}
+            {message.role === "assistant" ? <MessageResponse className="h-auto text-sm">{message.content}</MessageResponse> : <p className="whitespace-pre-wrap text-sm">{message.content}</p>}
             {message.role === "assistant" && (
               <div className="mt-2 grid gap-1 text-xs text-muted-foreground">
                 {message.model_tier && <span>{[message.model_tier, message.model_provider, message.model_id].filter(Boolean).join(" · ")}{message.worked_ms != null ? ` · ${fill(COPY.seconds, { s: (Number(message.worked_ms) / 1000).toFixed(1) })}` : ""}{message.input_tokens != null ? ` · ${fill(COPY.tokens, { input: message.input_tokens, output: message.output_tokens })}` : ""}</span>}
@@ -299,6 +317,13 @@ function ConversationsTab({ users, dives }) {
   const [items, setItems] = React.useState([]);
   const [state, setState] = React.useState({ loading: true, error: "", more: false });
   const [selected, setSelected] = React.useState(null);
+  const detailRef = React.useRef(null);
+  const diveTitle = key => dives.find(dive => dive.key === key)?.title || key;
+  const open = id => {
+    setSelected(id);
+    // On narrow screens the detail sits below the list, so bring it into view.
+    if (window.matchMedia("(max-width: 1023px)").matches) requestAnimationFrame(() => detailRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
+  };
   const load = React.useCallback(async (offset = 0) => {
     setState(current => ({ ...current, loading: true, error: "" }));
     const params = new URLSearchParams({ limit: "50", offset: String(offset), ...Object.fromEntries(Object.entries(filters).filter(([, value]) => value)) });
@@ -332,9 +357,9 @@ function ConversationsTab({ users, dives }) {
           <ul className="grid">
             {items.map(item => (
               <li key={item.id}>
-                <button type="button" onClick={() => setSelected(item.id)} className={`grid w-full gap-0.5 border-b border-border px-1 py-2 text-left last:border-b-0 hover:bg-muted ${selected === item.id ? "bg-muted" : ""}`}>
+                <button type="button" onClick={() => open(item.id)} aria-current={selected === item.id || undefined} className={`grid w-full gap-0.5 border-b border-border px-1 py-2 text-left last:border-b-0 hover:bg-muted ${selected === item.id ? "bg-muted" : ""}`}>
                   <span className="truncate text-sm font-medium">{item.title || "—"}</span>
-                  <span className="text-xs text-muted-foreground">{item.user_label} · {item.dive_key} · {plural(COPY.messages, Number(item.message_count))}{item.model_tiers ? ` · ${item.model_tiers}` : ""} · {dateTime(item.updated_at)}</span>
+                  <span className="text-xs text-muted-foreground">{item.user_label} · {diveTitle(item.dive_key)} · {plural(COPY.messages, Number(item.message_count))}{item.model_tiers ? ` · ${item.model_tiers}` : ""} · {dateTime(item.updated_at)}</span>
                 </button>
               </li>
             ))}
@@ -343,7 +368,7 @@ function ConversationsTab({ users, dives }) {
           {state.more && !state.loading && <Button size="sm" variant="ghost" onClick={() => load(items.length)}>{COPY.loadMore}</Button>}
         </CardContent>
       </Card>
-      <Card className="min-w-0"><CardContent className="pt-6">{selected ? <ConversationDetail id={selected} onDeleted={() => { setSelected(null); load(0); }} /> : <p className="text-sm text-muted-foreground">{COPY.pick}</p>}</CardContent></Card>
+      <Card className="min-w-0 scroll-mt-4" ref={detailRef}><CardContent className="pt-6">{selected ? <ConversationDetail id={selected} diveTitle={diveTitle} onDeleted={() => { setSelected(null); load(0); }} /> : <p className="text-sm text-muted-foreground">{COPY.pick}</p>}</CardContent></Card>
     </div>
   );
 }
@@ -354,6 +379,16 @@ export default function AdminApp() {
   const [users, setUsers] = React.useState([]);
   const [dives, setDives] = React.useState([]);
   const [loading, setLoading] = React.useState(false);
+  const [toast, setToast] = React.useState("");
+  const toastTimer = React.useRef();
+  const readOnly = React.useMemo(() => ({
+    reason: status.demo ? COPY.demoUnavailable : "",
+    explain: () => {
+      setToast(COPY.demoUnavailable);
+      window.clearTimeout(toastTimer.current);
+      toastTimer.current = window.setTimeout(() => setToast(""), 3500);
+    },
+  }), [status.demo]);
 
   React.useEffect(() => {
     try { document.documentElement.classList.toggle("dark", window.localStorage.getItem("dive_app_theme") === "\"dark\"" || window.localStorage.getItem("dive_app_theme") === "dark"); } catch { /* theme is optional */ }
@@ -386,24 +421,30 @@ export default function AdminApp() {
   const message = { off: [COPY.accountsOff, COPY.accountsOffBody], signin: [COPY.title, COPY.signIn], forbidden: [COPY.title, COPY.notAdmin], error: [COPY.title, fill(COPY.failed, { reason: status.message })] }[status.state];
   return (
     <div className="min-h-screen bg-background text-foreground">
-      <header className="flex items-center gap-3 border-b border-border px-4 py-3">
+      <header className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-border px-4 py-3">
         <Button size="sm" variant="ghost" nativeButton={false} render={<a href="/" />}><ArrowLeft data-icon="inline-start" aria-hidden="true" />{COPY.back}</Button>
         <h1 className="text-base font-semibold">{COPY.title}</h1>
         {status.state === "ready" && (
-          <nav className="ml-auto flex gap-1" aria-label={COPY.title}>
+          <nav className="flex w-full gap-1 sm:ml-auto sm:w-auto" aria-label={COPY.title}>
             <Button size="sm" variant={tab === "users" ? "secondary" : "ghost"} aria-pressed={tab === "users"} onClick={() => setTab("users")}><Users data-icon="inline-start" aria-hidden="true" />{COPY.users}</Button>
             <Button size="sm" variant={tab === "conversations" ? "secondary" : "ghost"} aria-pressed={tab === "conversations"} onClick={() => setTab("conversations")}><MessageSquare data-icon="inline-start" aria-hidden="true" />{COPY.conversations}</Button>
           </nav>
         )}
       </header>
-      <ReadOnly.Provider value={status.demo ? COPY.demoUnavailable : ""}>
+      <ReadOnly.Provider value={readOnly}>
       <main className="mx-auto grid max-w-6xl gap-6 px-4 py-6">
         {status.state === "loading" && <Spinner />}
-        {status.demo && <Card><CardHeader><CardTitle>{COPY.demoTitle}</CardTitle><CardDescription>{COPY.demoBody}</CardDescription></CardHeader></Card>}
+        {status.demo && (
+          <Card>
+            <CardHeader><CardTitle>{COPY.demoTitle}</CardTitle><CardDescription>{COPY.demoBody}</CardDescription></CardHeader>
+            <CardContent><ul className="grid list-disc gap-1 pl-5 text-sm text-muted-foreground">{COPY.demoTry.map(item => <li key={item}>{item}</li>)}</ul></CardContent>
+          </Card>
+        )}
         {message && <Card><CardHeader><CardTitle>{message[0]}</CardTitle><CardDescription>{message[1]}</CardDescription></CardHeader>{status.state === "signin" && <CardContent><Button nativeButton={false} render={<a href="/" />}>{COPY.back}</Button></CardContent>}</Card>}
         {status.state === "ready" && tab === "users" && <UsersTab users={users} dives={dives} me={status.me} reload={loadUsers} loading={loading} />}
         {status.state === "ready" && tab === "conversations" && <ConversationsTab users={users} dives={dives} />}
       </main>
+      <DemoToast message={toast} />
       </ReadOnly.Provider>
     </div>
   );

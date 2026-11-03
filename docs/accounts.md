@@ -109,7 +109,9 @@ Grant access to the app in your identity provider too, for example by assigning 
 `PUBLIC_DEMO=true` turns a deployment into a demo that anyone with the sign-in can explore, without being able to break it for the next visitor:
 
 - Visitors share one administrator account, so they can open every screen, including **People** and **Conversations**.
-- Every change is switched off and says "This is not available in a public demo.": adding people, passwords, access, roles, disabling, deleting, and changing the shared account itself. The server refuses these requests too, not just the interface.
+- Every change is switched off and says "This is not available in a public demo." when pressed, by mouse, keyboard or touch: adding people, passwords, access, roles, disabling, deleting, and changing the shared account itself. The server refuses these requests too, not just the interface.
+- Dives that are not connected are hidden, because visitors cannot act on setup instructions.
+- The chat opens beside the Dive on wide screens, and the top bar shows a **Public demo** badge.
 - Model tiers left out of `CHAT_MODELS` stay in the picker, greyed out with the same message.
 - The chat panel tells visitors that their conversations are visible to every other visitor.
 - The chat limit of 20 questions a minute applies to each visitor's session rather than to the shared account.
@@ -119,7 +121,7 @@ To set one up:
 1. Set up accounts mode as above, and create the shared account with `npm run admin:create -- --username=demo`.
 2. While `PUBLIC_DEMO` is still off, add a few example people in the admin portal, so visitors have something to look at. Use made-up names and no real email addresses, because every visitor can see them.
 3. Set `PUBLIC_DEMO=true`, `CHAT_MODELS=luna` (or the tiers you want to pay for) and a short `CHAT_RETENTION_DAYS`, such as `7`.
-4. Publish the username and password where you want visitors to find them. Set a monthly spending limit with your model provider, because anyone with the sign-in can ask questions.
+4. Publish the username and password where you want visitors to find them, and set `PUBLIC_DEMO_SIGN_IN_URL` to that page so the sign-in page links to it. Set a monthly spending limit with your model provider, because anyone with the sign-in can ask questions.
 
 ## How it is built
 

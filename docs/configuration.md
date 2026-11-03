@@ -46,6 +46,7 @@ Optional. Setting `MOTHERDUCK_APP_TOKEN` switches from the shared password to pe
 | `SSO_ISSUER` or `SSO_DISCOVERY_URL`, `SSO_CLIENT_ID`, `SSO_CLIENT_SECRET` | For SSO | Any OpenID Connect provider. `SSO_LABEL` sets the button text. | Your identity provider's app registration. |
 | `OKTA_*`, `MICROSOFT_*`, `GOOGLE_*`, `GITHUB_*` | No | Ready-made providers. See [Single sign-on](accounts.md#single-sign-on). | The provider's console. |
 | `PUBLIC_DEMO` | No | `true` makes a look-around demo: visitors can open every screen, including the admin portal, but cannot change anything. Model tiers left out of `CHAT_MODELS` stay visible but greyed out. See [Run a public demo](accounts.md#run-a-public-demo). | You choose it. |
+| `PUBLIC_DEMO_SIGN_IN_URL` | No | In a public demo, an `https` link on the sign-in page to where the demo username and password are published, such as a README section. | You choose it. |
 | `AUTH_ALLOWED_EMAIL_DOMAINS` | No | Lets SSO create accounts for these domains, separated by commas. Without it, only existing accounts can use SSO. | Your company domains. |
 
 ### AI chat
