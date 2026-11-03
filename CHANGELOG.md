@@ -4,7 +4,7 @@ Every release of this template is listed here, newest first. The full notes for 
 
 ## v0.2.0 - 2026-10-30
 
-This release adds an optional accounts mode with an admin portal, single sign-on and saved conversations, Anthropic model support and automatic model routing. Auto becomes the default model choice, and `OPENAI_MODEL` and `OPENAI_CHAT_MODELS` are renamed with the previous names still accepted. See the [release notes](release-notes/v0.2.0.md).
+This release adds an optional accounts mode with an admin portal, groups, setup links, single sign-on, saved conversations and an optional sync of access onto MotherDuck share grants, as well as Anthropic model support and automatic model routing. Auto becomes the default model choice, and `OPENAI_MODEL` and `OPENAI_CHAT_MODELS` are renamed with the previous names still accepted. See the [release notes](release-notes/v0.2.0.md).
 
 ## v0.1.0 - 2026-10-30
 

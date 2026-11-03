@@ -18,9 +18,22 @@
 - **Context-aware follow-ups.** When a viewer picks a filter in the dashboard, the assistant knows about it. "What about this region?" just works.
 - **OpenAI or Anthropic, sized to the question.** On **Auto**, simple questions go to a small, cheap model and hard ones to a larger one. The app moves up a tier on its own if the small model struggles.
 - **People, access and an admin portal (optional).** Give each person their own login, choose which dashboards and whether AI chat they get, connect your single sign-on, and read past conversations.
+- **Ready for your customers.** Paste a list of people and send each one a setup link to choose their own password. Put each customer in a group with its own MotherDuck service account and data, and let their own manager add colleagues.
+- **Access that stays in step with MotherDuck.** Give someone a dashboard and the app grants the shares behind it in MotherDuck, then takes them back when access is removed.
 - **Safe by default.** Keys stay on the server. Chat uses a read-only identity. A password or per-person accounts protect the app.
 
 It is a small Next.js app. Use it as a demo, an internal tool, or the starting point for embedded analytics in your product.
+
+### A look around
+
+| | |
+| --- | --- |
+| ![Admin portal, People: a pasted list of three people added to the Acme Corp group, each with a one-time setup link to copy](docs/images/admin-people.jpeg) | ![Admin portal, Groups: the Acme Corp customer group with its own MotherDuck service account and its own share for the Explorer Dive](docs/images/admin-groups.jpeg) |
+| **Add people in bulk.** Each person gets a one-time link to choose a password. | **One group per customer,** with its own MotherDuck service account and databases. |
+| ![Admin portal, MotherDuck access: share grants waiting for two service accounts and two MotherDuck users, with the SQL to run](docs/images/admin-motherduck-access.jpeg) | ![The page a new person sees from a setup link: Choose your password](docs/images/choose-password.jpeg) |
+| **Access mirrored onto MotherDuck,** automatically or as SQL to run. | **What a new person sees** when they open their link. |
+
+<sub>Screenshots from a local preview with made-up people and placeholder share URLs.</sub>
 
 ## Get started
 
@@ -142,8 +155,10 @@ By default everyone shares one password. To give each person their own login:
 
 Sign in, then open **Admin** in the sidebar. There you can:
 
-- **Add people** with usernames and passwords, reset passwords, and disable or remove accounts.
-- **Choose access:** all dashboards or a chosen few, with or without AI chat.
+- **Add people** one by one or as a pasted list, and send each a one-time setup link (or set a password yourself). Reset passwords, and disable or remove accounts.
+- **Choose access:** all dashboards or a chosen few, with or without AI chat, per person or per **group**.
+- **Serve customers:** give a customer's group its own MotherDuck service account and databases, and make someone on their side a **group manager**.
+- **Keep MotherDuck in step:** with `MOTHERDUCK_ADMIN_TOKEN`, granting a dashboard also grants the shares behind it in MotherDuck. Without it, the portal shows the SQL to run.
 - **Read conversations:** every question, answer and SQL query, with the model that answered.
 
 To let people sign in with **Okta, Microsoft Entra ID, Google Workspace** or any OpenID Connect provider, add the provider's client ID and secret. The full guide, including privacy and retention settings, is in [docs/accounts.md](docs/accounts.md).

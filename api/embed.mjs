@@ -1,6 +1,7 @@
 import { readBody, sameOrigin, sanitizeState, send } from '../lib/security.mjs';
 import { canSeeDive, getViewer } from '../lib/viewer.mjs';
 import { getDive } from '../lib/dives.mjs';
+import { diveIdentity } from '../lib/groups.mjs';
 
 // Creates a short-lived MotherDuck embed session for one configured Dive. The browser
 // names a Dive key only; service-account credentials and share URLs stay on the server.
@@ -19,21 +20,23 @@ export default async function handler(request, response) {
   const theme = body?.theme || query.get('theme') || 'light';
   if (!['dark', 'light'].includes(theme)) return send(response, 400, { error: 'invalid_theme' });
   if (!dive.connected) return send(response, 503, { error: 'embedding_not_configured', missing: dive.missing });
+  // A data group's members see the Dive as the group's service account, against its databases.
+  const identity = diveIdentity(dive, viewer);
   try {
     const upstream = await fetch(`https://api.motherduck.com/v1/dives/${dive.id}/embed-session`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${process.env.MOTHERDUCK_EMBED_TOKEN}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        username: dive.username,
+        username: identity.username,
         ...(dive.version ? { version: dive.version } : {}),
         session_name: `embedded-dive-chat-${dive.key}`,
-        required_resources: dive.resources,
+        required_resources: identity.resources,
         initial_state: { ...sanitizeState(body?.state), app_theme: theme, app_embedded: true },
       }),
       signal: AbortSignal.timeout(20000),
     });
     if (!upstream.ok) {
-      console.error('embed_session_failed', { dive: dive.key, status: upstream.status });
+      console.error('embed_session_failed', { dive: dive.key, status: upstream.status, group: Boolean(identity.serviceAccount) });
       return send(response, 502, { error: 'embed_unavailable' });
     }
     const result = await upstream.json();
