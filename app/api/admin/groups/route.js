@@ -13,7 +13,9 @@ export async function POST(request) {
   let body;
   try { body = cleanGroup(groupSchema.parse(await request.json())); } catch { return failure('invalid_group', 400); }
   try {
-    const id = await createGroupStore().create(body);
+    const groups = createGroupStore();
+    if (body.serviceAccount && await groups.serviceAccountTaken(body.serviceAccount)) return failure('service_account_in_use', 409);
+    const id = await groups.create(body);
     await audit(viewer, 'group.created', { id, label: body.name }, { dives: body.dives, chat: body.chat, serviceAccount: body.serviceAccount });
     if (body.serviceAccount) await scheduleSync();
     return Response.json({ id }, { headers: NO_STORE });

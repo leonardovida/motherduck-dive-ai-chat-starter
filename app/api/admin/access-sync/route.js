@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { NO_STORE, failure, requireAdmin } from '../../../../lib/admin-api.mjs';
-import { createGrantStore, requestSync, syncStatus } from '../../../../lib/access-sync.mjs';
+import { confirmManualSql, requestSync, syncStatus } from '../../../../lib/access-sync.mjs';
 import { motherDuckAdmin } from '../../../../lib/motherduck-admin.mjs';
 import { publicDemo } from '../../../../lib/public-demo.mjs';
 import { audit } from '../../../../lib/audit.mjs';
@@ -15,6 +15,7 @@ const forDemo = status => ({
   ...status,
   grants: status.grants.map(row => ({ ...row, url: HIDDEN })),
   sql: status.sql.replace(/md:_share\/[^\s'>]+/g, HIDDEN),
+  planned: [],
 });
 
 // What the app has granted in MotherDuck, what is outstanding, and the SQL for manual mode.
@@ -31,16 +32,16 @@ export async function GET(request) {
 }
 
 // Runs a sync now and waits for it, so the portal can show the result. In manual mode,
-// { confirm: true } records that a share owner ran the SQL shown.
+// { confirm: [...] } records that a share owner ran the SQL shown, for the changes listed.
 export async function POST(request) {
   const { response, viewer } = await requireAdmin(request, { write: true });
   if (response) return response;
   let body;
-  try { body = z.object({ confirm: z.boolean().optional() }).parse(await request.json().catch(() => ({}))); } catch { return failure('invalid_sync', 400); }
+  try { body = z.object({ confirm: z.array(z.object({ grantee: z.string().max(128), url: z.string().max(300) })).max(5000).optional() }).parse(await request.json().catch(() => ({}))); } catch { return failure('invalid_sync', 400); }
   if (body.confirm) {
     if (motherDuckAdmin().configured()) return failure('automatic_mode', 409);
     try {
-      const result = await createGrantStore().confirmManual();
+      const result = await confirmManualSql(body.confirm);
       await audit(viewer, 'access_sync.confirmed', {}, result);
       return Response.json({ result, status: await syncStatus() }, { headers: NO_STORE });
     } catch (error) {

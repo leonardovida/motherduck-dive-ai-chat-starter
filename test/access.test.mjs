@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { applyGroups, diveIdentity, groupFromRow, parseDiveAccess, parseGroupResources } from '../lib/groups.mjs';
 import { canManagePeople, getViewer, publicViewer, viewerFromUser } from '../lib/viewer.mjs';
-import { applyPlan, createGrantStore, desiredGrants, manualSql, planSync, requestSync, syncAccess } from '../lib/access-sync.mjs';
+import { applyPlan, confirmManualSql, desiredGrants, manualSql, planSync, requestSync, syncAccess } from '../lib/access-sync.mjs';
 import { createMotherDuckAdmin, quoteIdent } from '../lib/motherduck-admin.mjs';
 import { createSetupStore, setupUrl } from '../lib/account-setup.mjs';
 import { createStatements } from '../lib/app-db-schema.mjs';
@@ -238,7 +238,9 @@ test('in manual mode taking access away lists the REVOKE, and marking the SQL do
   const { tables, query } = manualDatabase([{ id: 'maya', diveAccess: 'explorer', motherduckUser: 'maya' }]);
   const md = { configured: () => false };
   await syncAccess({ query, md, dives });
-  await createGrantStore(query).confirmManual();
+  const seen = [{ grantee: 'maya', url: SHARE_DEMO }];
+  assert.deepEqual(await confirmManualSql([{ grantee: 'someone_else', url: SHARE_DEMO }], { query, dives }), { granted: 0, removed: 0 }, 'only changes the admin saw are settled');
+  await confirmManualSql(seen, { query, dives });
   assert.equal([...tables.md_access_grant.values()][0].state, 'synced', 'the owner ran the GRANT');
   tables.user[0].banned = true;
   const result = await syncAccess({ query, md, dives });
@@ -246,7 +248,7 @@ test('in manual mode taking access away lists the REVOKE, and marking the SQL do
   assert.match(result.sql, /REVOKE READ ON SHARE <name of md:_share\/demo_data\/[0-9a-f]+> FROM USER "maya";/);
   assert.equal([...tables.md_access_grant.values()][0].state, 'removing', 'kept until the owner says it is done');
   assert.match((await syncAccess({ query, md, dives })).sql, /REVOKE/, 'the REVOKE stays listed until confirmed');
-  await createGrantStore(query).confirmManual();
+  await confirmManualSql(seen, { query, dives });
   assert.equal(tables.md_access_grant.size, 0);
 });
 
@@ -256,6 +258,7 @@ test('one sync runs at a time across instances, and a change during a run is fol
     acquire: async holder => (lease.holder ? false : ((lease.holder = holder), true)),
     markAgain: async () => (lease.holder ? ((lease.again = true), true) : false),
     takeAgain: async holder => (lease.holder === holder && lease.again ? ((lease.again = false), true) : false),
+    renew: async holder => lease.holder === holder,
     release: async holder => (lease.holder === holder && !lease.again ? ((lease.holder = null), true) : false),
     abandon: async () => { lease.holder = null; },
   };
@@ -270,6 +273,26 @@ test('one sync runs at a time across instances, and a change during a run is fol
   assert.equal(result.mode, 'manual');
   assert.equal(runs, 2);
   assert.equal(lease.holder, null, 'the lease is released');
+  // A run that loses its lease (it expired and another instance took it) stops instead of looping.
+  runs = 0;
+  const stolen = async (text, values) => { if (text.startsWith('SELECT id, name, username')) { runs += 1; lease.holder = 'someone-else'; } return query(text, values); };
+  await requestSync({ lock, query: stolen, md: { configured: () => false }, dives });
+  assert.equal(runs, 1);
+  assert.equal(lease.holder, 'someone-else', 'the other instance keeps its lease');
+});
+
+test('two aliases can swap shares: both are detached before either is attached again', async () => {
+  const X = SHARE_A, Y = SHARE_DEMO;
+  const md = fakeMotherDuck({ shares: { [X]: { name: 'x', access: 'ORGANIZATION' }, [Y]: { name: 'y', access: 'ORGANIZATION' } } });
+  const grants = memoryGrants();
+  const previous = new Map([
+    [`sa\n${X}`, { grantee: 'sa', grantee_kind: 'service_account', share_url: X, alias: 'a', attached_by_app: true, state: 'synced' }],
+    [`sa\n${Y}`, { grantee: 'sa', grantee_kind: 'service_account', share_url: Y, alias: 'b', attached_by_app: true, state: 'synced' }],
+  ]);
+  await applyPlan({ grant: [{ grantee: 'sa', kind: 'service_account', url: Y, alias: 'a' }, { grantee: 'sa', kind: 'service_account', url: X, alias: 'b' }], revoke: [] }, { md, grants, previous });
+  const sql = md.log.filter(([who]) => who === 'sa').map(([, text]) => text).filter(text => /^(ATTACH|DETACH)/.test(text));
+  assert.deepEqual(sql, ['DETACH DATABASE IF EXISTS "b"', 'DETACH DATABASE IF EXISTS "a"', `ATTACH IF NOT EXISTS '${Y}' AS "a"`, `ATTACH IF NOT EXISTS '${X}' AS "b"`]);
+  assert.ok([...grants.rows.values()].every(row => row.attached_by_app));
 });
 
 test('MotherDuck REST calls send the admin token only to MotherDuck and keep error text short and redacted', async () => {
@@ -340,7 +363,8 @@ function peopleDatabase({ users, members, accounts = [] }) {
     if (text.startsWith('SELECT group_id, manager FROM access_group_member')) return members.filter(row => row.user_id === values[0]);
     if (text.startsWith('SELECT group_id FROM access_group_member')) return members.filter(row => row.user_id === values[0] && row.manager);
     if (text.startsWith('SELECT 1 AS found FROM account')) return accounts.filter(row => row.userId === values[0] && row.providerId !== values[1]);
-    if (text.startsWith('SELECT "banReason"')) return users.filter(user => user.id === values[0]);
+    if (text.startsWith('SELECT banned, "banReason"')) return users.filter(user => user.id === values[0]);
+    if (text.startsWith('SELECT "emailVerified"')) return users.filter(user => user.id === values[0]);
     return [];
   };
 }
@@ -393,10 +417,14 @@ test('a manager cannot re-enable someone an administrator disabled, and cannot m
   const ctx = { internalAdapter: { updateUser: async (id, data) => updates.push([id, data]), deleteUserSessions: async () => {} } };
   const people = createPeopleService(query, { auth: () => ({ $context: Promise.resolve(ctx) }), setup: { revokeFor: async () => {}, create: async () => ({ token: 't', expiresAt: new Date() }) } });
   const manager = { all: false, groups: ['g-acme'] };
+  users[0].banned = true;
   await assert.rejects(people.setBanned('jules', false, { scope: manager }), error => error.message === 'disabled_by_admin');
+  await assert.rejects(people.setBanned('jules', true, { scope: manager }), error => error.message === 'disabled_by_admin', 'banning again would overwrite the reason');
+  assert.equal(updates.length, 0);
+  users[0].banned = false;
   await people.setBanned('jules', true, { scope: manager });
   assert.equal(updates[0][1].banReason, BANNED_BY.manager);
-  users[0].banReason = BANNED_BY.manager;
+  users[0].banned = true; users[0].banReason = BANNED_BY.manager;
   await people.setBanned('jules', false, { scope: manager });
   assert.equal(updates[1][1].banned, false);
   await assert.rejects(people.setupLink('jules', { viewer: { id: 'lena' }, scope: manager, origin: 'https://x' }), error => error.message === 'single_sign_on_user');
@@ -409,7 +437,21 @@ test('single sign-on puts verified emails from a mapped domain into its group, a
   assert.deepEqual([...domainGroups(env)], [['acme.com', 'Acme'], ['globex.co.uk', 'Globex Ltd']]);
   assert.deepEqual(allowedEmailDomains(env).sort(), ['acme.com', 'example.com', 'globex.co.uk']);
   assert.deepEqual(newAccountDefaults({ email: 'a@acme.com', emailVerified: true }, env), { group: 'Acme', data: { diveAccess: '', chatAccess: false } });
-  assert.deepEqual(newAccountDefaults({ email: 'a@acme.com', emailVerified: false }, env), { group: null, data: { diveAccess: '', chatAccess: false } }, 'an unverified email gets nothing');
-  assert.deepEqual(newAccountDefaults({ email: 'a@example.com' }, env).data, { diveAccess: '*', chatAccess: true });
-  assert.deepEqual(newAccountDefaults({ email: 'a@example.com' }, { ...env, AUTH_NEW_ACCOUNT_ACCESS: 'none' }).data, { diveAccess: '', chatAccess: false });
+  assert.equal(newAccountDefaults({ email: 'a@acme.com', emailVerified: false }, env), null, 'an unverified email creates no account');
+  assert.equal(newAccountDefaults({ email: 'a@other.com', emailVerified: true }, env), null, 'a domain that is not allowed creates no account');
+  assert.deepEqual(newAccountDefaults({ email: 'a@example.com', emailVerified: true }, env).data, { diveAccess: '*', chatAccess: true });
+  assert.deepEqual(newAccountDefaults({ email: 'a@example.com', emailVerified: true }, { ...env, AUTH_NEW_ACCOUNT_ACCESS: 'none' }).data, { diveAccess: '', chatAccess: false });
+});
+
+test('only identity providers the deployer controls are trusted to vouch for an email', async () => {
+  const { trustedSsoProviders, newAccountDefaults } = await import('../lib/auth.mjs');
+  const entra = tenant => ({ MICROSOFT_CLIENT_ID: 'c', MICROSOFT_CLIENT_SECRET: 's', MICROSOFT_TENANT_ID: tenant });
+  assert.deepEqual(trustedSsoProviders(entra('0b4f2c1e-1234-4abc-9def-0123456789ab')), ['microsoft-entra-id']);
+  const generic = { SSO_CLIENT_ID: 'c', SSO_CLIENT_SECRET: 's', SSO_ISSUER: 'https://idp.example.com' };
+  assert.deepEqual(trustedSsoProviders(generic), []);
+  assert.deepEqual(trustedSsoProviders({ ...generic, SSO_TRUSTED: 'true' }), ['sso']);
+  assert.deepEqual(trustedSsoProviders({ GOOGLE_CLIENT_ID: 'c', GOOGLE_CLIENT_SECRET: 's', GITHUB_CLIENT_ID: 'c', GITHUB_CLIENT_SECRET: 's' }), [], 'Google and GitHub send their own verified flag');
+  const env = { ...entra('0b4f2c1e-1234-4abc-9def-0123456789ab'), AUTH_ALLOWED_EMAIL_DOMAINS: 'example.com' };
+  assert.ok(newAccountDefaults({ email: 'a@example.com', emailVerified: false }, env, 'microsoft-entra-id'), 'a single-tenant Entra email counts as verified');
+  assert.equal(newAccountDefaults({ email: 'a@example.com', emailVerified: false }, env, 'google'), null);
 });

@@ -30,3 +30,12 @@ test('the limiter retains blocked clients at capacity and admits new clients aft
   now = 1100;
   assert.equal(limiter.blocked('a'), false);
 });
+
+test('a limiter that evicts forgets the oldest bucket when full, instead of refusing everyone new', () => {
+  const limiter = createFailureLimiter({ limit: 1, maxKeys: 2, evict: true });
+  limiter.failed('a'); limiter.failed('b');
+  assert.equal(limiter.blocked('c'), false, 'a new account can still try');
+  limiter.failed('c');
+  assert.equal(limiter.blocked('a'), false, 'the oldest bucket made room');
+  assert.equal(limiter.blocked('c'), true);
+});
