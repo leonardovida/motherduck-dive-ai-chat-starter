@@ -45,13 +45,18 @@ When `MOTHERDUCK_APP_TOKEN` is set, the shared `DEMO_PASSWORD` is no longer acce
 
 - **Add people** one at a time, or paste a list with one person per line: `username, display name, email` (name and email are optional). Usernames use letters, digits, dots and underscores. Pick a group, a role and any extra access.
 - **Setup links (recommended).** Each new person gets a one-time link to choose their own password. Copy the links, or download them as a CSV, and send them through a channel you trust. A link works once, expires after 7 days, and is never stored, only its hash. **Setup link** on a person creates a new one and cancels the previous one, which also works as a password reset. You can still choose **Password I share myself** instead.
-- **Set password** replaces a person's password.
+- **Set password** replaces a person's password and signs them out everywhere else.
+- Each person shows whether their setup link is still waiting (and until when), whether it expired, and when they last signed in. People who sign in with single sign-on are marked.
+- **Find people** filters by name, email, MotherDuck username or group. **Export CSV** downloads everyone with their role, groups and last sign-in. The list shows the newest 1,000 people.
+- **Make admin**, **Disable** and **Delete** ask once more before they take effect, in place. So does **Delete group**, which says how many members lose the group's access.
 - **Edit access** picks the Dives a person can open, whether they can use AI chat, and their **MotherDuck username** (see [Mirror access onto MotherDuck](#mirror-access-onto-motherduck)). Unticking every Dive means no Dives of their own; they keep what their groups give them. Chat and new dashboard sessions check access on every request, so changes apply immediately. The Dive list in the sidebar updates within a minute.
 - **Disable** blocks sign-in and ends the person's sessions. **Delete** removes the account. Their saved conversations stay until deleted or expired.
 - The portal does not let you demote, disable or delete yourself, so there is always at least one administrator.
 
 **Groups**
 
+- A group card says whether AI chat really works for its members. Chat for a group with a service account needs `MOTHERDUCK_ADMIN_TOKEN` and the Dive's chat database among the group's databases; the card says so when either is missing.
+- With `MOTHERDUCK_ADMIN_TOKEN` set, saving a group with a new service account name can also create that account in MotherDuck in the same step.
 - A group has a name, the Dives it can open and whether it has AI chat. Access adds up: a person sees their own Dives plus those of every group they belong to, except in a group with a service account, which alone decides (below).
 - Tick **Manager** next to a member to let them look after the group's people (see [Group managers](#group-managers)).
 - **MotherDuck service account (optional).** Members of a group with a service account open Dives and ask questions as that account instead of the shared one. This is how one deployment serves several customers, each seeing only their own data. See [Serve your customers](#serve-your-customers).
@@ -60,6 +65,10 @@ When `MOTHERDUCK_APP_TOKEN` is set, the shared `DEMO_PASSWORD` is no longer acce
 - **A group with a service account decides on its own.** Every member reads data as the same service account, so a member sees exactly that group's Dives and chat. Their own access and their other groups add nothing, and the service account is granted only the group's Dives. Joining such a group clears the person's own access, so leaving it later does not fall back to the shared identity's Dives. Giving an existing group a service account does the same for its members.
 
 **MotherDuck access** shows every grant the app has made or is waiting to make, and the SQL to run when the app is not allowed to make them itself.
+
+**Activity** lists who changed what, newest first: people added, access changed, people disabled or deleted, setup links and passwords set, roles, groups and their members, service accounts created, MotherDuck syncs and deleted conversations. Filter by a person's name or by the kind of change. Entries never hold passwords, setup links or tokens.
+
+**People change their own password** from **Change password** in the sidebar. It signs them out everywhere else. People who sign in with single sign-on are told to change it with their identity provider. A public demo hides it.
 
 **Conversations**
 
@@ -80,7 +89,7 @@ The app then creates each Dive session for that customer's service account with 
 
 ## Group managers
 
-A manager of a group can open **Admin** and see only the people in the groups they manage. They can:
+A manager of a group can open **Admin** and see only the people in the groups they manage, and what each of those groups can open. They can:
 
 - add people to their group (by list or one at a time), who get the group's access and nothing more;
 - create setup links, and disable, re-enable or remove people from their group.

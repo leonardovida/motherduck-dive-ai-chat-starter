@@ -69,6 +69,8 @@ const COPY = {
     invalid_group: "check the name and databases",
     invalid_access: "check the MotherDuck username",
     invalid_member: "pick a person first",
+    service_account_in_use: "another group already uses this service account, and two groups would read each other's data",
+    invalid_sync: "refresh the page and try again",
     members_in_other_data_group: "some members already belong to another group with its own service account, and a person can have only one",
     single_sign_on_user: "this person signs in with single sign-on, so only an administrator can create a setup link for them",
     disabled_by_admin: "an administrator disabled this person, so only an administrator can re-enable them",
@@ -173,7 +175,7 @@ const COPY = {
   actions: {
     "person.created": "Added", "person.access_changed": "Changed access of", "person.disabled": "Disabled", "person.enabled": "Re-enabled",
     "person.setup_link": "Created a setup link for", "person.password_set": "Set the password of", "person.password_chosen": "Chose a password", "person.password_changed": "Changed their password",
-    "person.role_changed": "Changed the role of", "person.removed": "Deleted", "person.signed_out": "Signed out", "person.impersonated": "Signed in as",
+    "person.role_changed": "Changed the role of", "person.removed": "Deleted", "person.signed_out": "Signed out", "person.impersonated": "Signed in as", "person.updated": "Changed the details of",
     "group.created": "Created group", "group.updated": "Changed group", "group.deleted": "Deleted group", "group.member_added": "Added to a group",
     "group.member_removed": "Removed from a group", "group.service_account_created": "Created the service account of",
     "access_sync.run": "Synced MotherDuck access", "access_sync.confirmed": "Marked the MotherDuck SQL as done", "conversation.deleted": "Deleted a conversation",
@@ -289,7 +291,7 @@ const diveSummary = (dives, access) => (access.dives === "*" ? COPY.allDives : d
 const dataGroupOf = memberships => memberships.map(item => item.group).filter(group => group.serviceAccount).sort((a, b) => a.id.localeCompare(b.id))[0];
 const effectiveAccess = (user, memberships) => {
   const data = dataGroupOf(memberships);
-  if (data) return { dives: data.dives, chat: data.chat };
+  if (data) return { dives: data.dives, chat: data.chatReady ?? data.chat };
   return memberships.reduce((access, { group }) => ({
     dives: access.dives === "*" || group.dives === "*" ? "*" : [...new Set([...access.dives, ...group.dives])],
     chat: access.chat || group.chat,
@@ -499,7 +501,7 @@ function UserRow({ user, dives, groups, grants, scope, self, onChanged }) {
           </span>
         )}
       </div>
-      {!canAct && <p className="text-xs text-muted-foreground">{COPY.outOfReach}</p>}
+      {!canAct && !self && <p className="text-xs text-muted-foreground">{COPY.outOfReach}</p>}
       <SetupLink link={link} />
       {mode === "password" && (
         <form className="flex flex-wrap items-center gap-2" onSubmit={event => { event.preventDefault(); if (reason) explain(); else if (password.length >= 12) run(() => unwrap(authClient.admin.setUserPassword({ userId: user.id, newPassword: password })), fill(COPY.passwordSaved, { name })); }}>
@@ -794,7 +796,7 @@ function AccessSyncTab({ status, reload }) {
       </Card>
       {status.sql && (
         <Card>
-          <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2"><CardTitle>{COPY.sqlTitle}</CardTitle><span className="flex gap-1"><CopyButton text={status.sql} />{status.mode === "manual" && <WriteButton size="sm" variant="outline" disabled={state.busy} onClick={() => post({ confirm: true })}><CheckCheck data-icon="inline-start" aria-hidden="true" />{COPY.markDone}</WriteButton>}</span></CardHeader>
+          <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2"><CardTitle>{COPY.sqlTitle}</CardTitle><span className="flex gap-1"><CopyButton text={status.sql} />{status.mode === "manual" && <WriteButton size="sm" variant="outline" disabled={state.busy} onClick={() => post({ confirm: status.planned || [] })}><CheckCheck data-icon="inline-start" aria-hidden="true" />{COPY.markDone}</WriteButton>}</span></CardHeader>
           <CardContent className="grid gap-2">{status.mode === "manual" && <p className="text-xs text-muted-foreground">{COPY.markDoneHint}</p>}<pre className="overflow-x-auto whitespace-pre-wrap rounded-md bg-muted p-3 font-mono text-xs">{status.sql}</pre></CardContent>
         </Card>
       )}
@@ -835,7 +837,7 @@ function ActivityTab() {
         <ol className="grid">
           {events.map(event => (
             <li key={event.id} className="grid gap-0.5 border-b border-border py-2 text-sm last:border-b-0">
-              <span><span className="font-medium">{event.actor_label || "—"}</span> {(COPY.actions[event.action] || event.action).toLowerCase()} {event.target_label && <span className="font-medium">{event.target_label}</span>}</span>
+              <span><span className="font-medium">{event.actor_label || "—"}</span>: {COPY.actions[event.action] || event.action}{event.target_label && <> <span className="font-medium">{event.target_label}</span></>}</span>
               <span className="text-xs text-muted-foreground">{[dateTime(event.created_at), describe(event.detail)].filter(Boolean).join(" · ")}</span>
             </li>
           ))}

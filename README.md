@@ -20,6 +20,7 @@
 - **People, access and an admin portal (optional).** Give each person their own login, choose which dashboards and whether AI chat they get, connect your single sign-on, and read past conversations.
 - **Ready for your customers.** Paste a list of people and send each one a setup link to choose their own password. Put each customer in a group with its own MotherDuck service account and data, and let their own manager add colleagues.
 - **Access that stays in step with MotherDuck.** Give someone a dashboard and the app grants the shares behind it in MotherDuck, then takes them back when access is removed.
+- **A record of every change.** The admin portal's activity log shows who added, changed, disabled or removed whom, and when.
 - **Safe by default.** Keys stay on the server. Chat uses a read-only identity. A password or per-person accounts protect the app.
 
 It is a small Next.js app. Use it as a demo, an internal tool, or the starting point for embedded analytics in your product.
@@ -160,6 +161,8 @@ Sign in, then open **Admin** in the sidebar. There you can:
 - **Serve customers:** give a customer's group its own MotherDuck service account and databases, and make someone on their side a **group manager**.
 - **Keep MotherDuck in step:** with `MOTHERDUCK_ADMIN_TOKEN`, granting a dashboard also grants the shares behind it in MotherDuck. Without it, the portal shows the SQL to run.
 - **Read conversations:** every question, answer and SQL query, with the model that answered.
+- **See who changed what:** the **Activity** tab lists every change to people, access, groups and MotherDuck grants.
+- **Bring SSO domains straight into groups:** `AUTH_DOMAIN_GROUPS` puts people from a company's email domain into its group on their first sign-in.
 
 To let people sign in with **Okta, Microsoft Entra ID, Google Workspace** or any OpenID Connect provider, add the provider's client ID and secret. The full guide, including privacy and retention settings, is in [docs/accounts.md](docs/accounts.md).
 

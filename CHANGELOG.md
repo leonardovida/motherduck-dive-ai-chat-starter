@@ -2,6 +2,10 @@
 
 Every release of this template is listed here, newest first. The full notes for each version are in [`release-notes/`](release-notes/) and on the [GitHub Releases page](https://github.com/leonardovida/motherduck-dive-ai-chat-starter/releases). Version numbers follow the policy in [docs/releasing.md](docs/releasing.md#version-numbers).
 
+## v0.3.0 - 2026-11-03
+
+This release isolates groups with their own MotherDuck service account, narrows what group managers may do, requires verified emails for single sign-on and makes the MotherDuck access sync safe across server instances. It also adds an activity log, invitation and sign-in status, self-service password changes and single sign-on domain groups. Deployments pinned to `v0.2.x` do not receive it, and `npm run db:migrate` is required. See the [release notes](release-notes/v0.3.0.md).
+
 ## v0.2.0 - 2026-11-03
 
 This release adds an optional accounts mode with an admin portal, groups, setup links, single sign-on, saved conversations and an optional sync of access onto MotherDuck share grants, as well as Anthropic model support and automatic model routing. Auto becomes the default model choice, and `OPENAI_MODEL` and `OPENAI_CHAT_MODELS` are renamed with the previous names still accepted. See the [release notes](release-notes/v0.2.0.md).

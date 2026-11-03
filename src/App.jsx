@@ -124,6 +124,7 @@ const COPY = {
   chatAbout: "Ask about the displayed Dive.",
   resizeChat: "Resize chat",
   signOut: "Sign out",
+  theme: "Theme",
   changePassword: "Change password",
   changePasswordBody: "Choose a new password. You stay signed in here and are signed out everywhere else.",
   currentPassword: "Current password",
@@ -471,7 +472,10 @@ function DiveSidebar({ dives, selectedKey, onSelect, onSignOut, user, demo }) {
     onSelect(key);
     if (isMobile) setOpenMobile(false);
   };
+  // The password panel sits outside the sidebar, which closes on phones when it opens.
   return (
+    <>
+    <ChangePasswordSheet open={passwordOpen} onOpenChange={setPasswordOpen} />
     <Sidebar mobileTitle={COPY.dives} mobileDescription={COPY.chooseDive} collapsible={isMobile ? "offcanvas" : "none"} className="app-sidebar" style={{ "--sidebar-width": "100%" }}>
       <SidebarContent>
         <SidebarGroup className="workspace-nav-group">
@@ -508,16 +512,16 @@ function DiveSidebar({ dives, selectedKey, onSelect, onSignOut, user, demo }) {
           )}
           {user?.mode === "accounts" && !demo && (
             <SidebarMenuItem>
-              <SidebarMenuButton className="sign-out-button" onClick={() => setPasswordOpen(true)}><KeyRound aria-hidden="true" /><span>{COPY.changePassword}</span></SidebarMenuButton>
+              <SidebarMenuButton className="sign-out-button" onClick={() => { if (isMobile) setOpenMobile(false); setPasswordOpen(true); }}><KeyRound aria-hidden="true" /><span>{COPY.changePassword}</span></SidebarMenuButton>
             </SidebarMenuItem>
           )}
           <SidebarMenuItem>
             <SidebarMenuButton className="sign-out-button" onClick={onSignOut} title={user?.name ? fill(COPY.signedInAs, { name: user.username || user.name }) : undefined}><LogOut aria-hidden="true" /><span>{COPY.signOut}</span></SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
-        <ChangePasswordSheet open={passwordOpen} onOpenChange={setPasswordOpen} />
       </SidebarFooter>
     </Sidebar>
+    </>
   );
 }
 
