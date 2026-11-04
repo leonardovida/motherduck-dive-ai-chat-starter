@@ -118,3 +118,16 @@ test('the command exits 1 with a message on stderr when it cannot run', async ()
   assert.match(unreachable.stderr, /^\/api\/cron\/daily failed: /);
   assert.doesNotMatch(unreachable.stdout + unreachable.stderr, new RegExp(SECRET));
 });
+
+test('CRON_TARGET_URL replaces APP_URL for the call, and may be a private http address', async () => {
+  const { calls, impl } = fakeFetch();
+  const result = await callCronRoute('/api/cron/daily', { ...ENV, CRON_TARGET_URL: 'http://internal-lb.example.test/' }, impl);
+  assert.equal(result.ok, true);
+  assert.equal(calls[0].url, 'http://internal-lb.example.test/api/cron/daily');
+  for (const bad of ['internal-lb', 'ftp://internal-lb', 'http://internal-lb/path']) {
+    const refused = await callCronRoute('/api/cron/daily', { ...ENV, CRON_TARGET_URL: bad }, impl);
+    assert.equal(refused.ok, false, bad);
+    assert.match(refused.message, /CRON_TARGET_URL/);
+  }
+  assert.equal(calls.length, 1, 'nothing is called with an invalid target');
+});

@@ -68,3 +68,14 @@ test('the availabilityZones option replaces the zone parameters', () => {
   assert.deepEqual([...new Set(zones)].sort(), ['us-east-1b', 'us-east-1c']);
   assert.throws(() => synth({ availabilityZones: ['us-east-1b'] }), /at least two zones/);
 });
+
+test('the scheduled jobs call the internal load balancer, not CloudFront', () => {
+  const definitions = Object.values(synth().findResources('AWS::ECS::TaskDefinition'));
+  const cron = definitions.map(resource => resource.Properties.ContainerDefinitions[0]).filter(c => c.Name === 'cron');
+  assert.equal(cron.length, 2, 'a daily and a weekly job');
+  for (const container of cron) {
+    const target = JSON.stringify(envValue(container, 'CRON_TARGET_URL'));
+    assert.match(target, /http:\/\//);
+    assert.match(target, /LoadBalancer[0-9A-F]*",\s*"DNSName"/, 'CRON_TARGET_URL is the load balancer address');
+  }
+});

@@ -257,7 +257,9 @@ export class DiveChatStack extends cdk.Stack {
         image: containerImage,
         command: ['node', 'deploy/cron.mjs', route],
         logging: ecs.LogDrivers.awsLogs({ logGroup, streamPrefix: id.toLowerCase() }),
-        environment: { APP_URL: appUrl },
+        // Straight to the internal load balancer, so CloudFront's 120-second origin timeout (and its
+        // retries of a timed-out GET) cannot cut off or repeat a long daily run.
+        environment: { APP_URL: appUrl, CRON_TARGET_URL: cdk.Fn.join('', ['http://', alb.loadBalancerDnsName]) },
         secrets: { CRON_SECRET: ecs.Secret.fromSecretsManager(cronSecret) },
       });
       new scheduler.Schedule(this, `${id}Schedule`, {

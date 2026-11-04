@@ -66,7 +66,7 @@ jobs:
           if [ -n "$output" ]; then echo "$output"; exit 1; fi
       - name: azuredeploy.json matches main.bicep
         run: |
-          $RUNNER_TEMP/bicep build deploy/azure/main.bicep --outfile "$RUNNER_TEMP/azuredeploy.json"
+          "$RUNNER_TEMP/bicep" build deploy/azure/main.bicep --outfile "$RUNNER_TEMP/azuredeploy.json"
           if ! diff -u deploy/azure/azuredeploy.json "$RUNNER_TEMP/azuredeploy.json"; then
             echo "::error::azuredeploy.json is out of date. Run: bicep build deploy/azure/main.bicep --outfile deploy/azure/azuredeploy.json (Bicep $BICEP_VERSION)"
             exit 1
@@ -78,7 +78,7 @@ jobs:
         run: |
           awk '/^cat > deploy\/azure\/dive-chat.bicepparam <</{found=1; next} /^EOF$/{found=0} found' docs/deploy.md > deploy/azure/dive-chat.bicepparam
           test -s deploy/azure/dive-chat.bicepparam
-          $RUNNER_TEMP/bicep build-params deploy/azure/dive-chat.bicepparam --outfile "$RUNNER_TEMP/dive-chat.parameters.json"
+          "$RUNNER_TEMP/bicep" build-params deploy/azure/dive-chat.bicepparam --outfile "$RUNNER_TEMP/dive-chat.parameters.json"
       - name: The Deploy to Azure buttons open azuredeploy.json, and every parameter has a description
         run: |
           for file in README.md docs/deploy.md; do

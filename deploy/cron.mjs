@@ -5,7 +5,10 @@
 //   node deploy/cron.mjs /api/cron/daily
 //
 // It reads APP_URL and CRON_SECRET from the environment, prints the status and the route's
-// JSON result (which holds no secrets), and exits 1 when the call fails. A redirect counts as a
+// JSON result (which holds no secrets), and exits 1 when the call fails. CRON_TARGET_URL, when
+// set, is called instead of APP_URL: the AWS stack points it at the internal load balancer, so
+// a long daily run is not cut off by CloudFront's 120-second origin timeout. It may be http,
+// because that traffic stays inside the deployment's private network. A redirect counts as a
 // failure: following it could drop the bearer token or land on a page that is not the route.
 import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
@@ -15,8 +18,10 @@ const DEFAULT_TIMEOUT_MS = 330_000;
 
 export async function callCronRoute(route, env = process.env, fetchImpl = globalThis.fetch) {
   if (!ROUTES.includes(route)) return { ok: false, message: `Usage: node deploy/cron.mjs ${ROUTES.join(' | ')}` };
-  const base = String(env.APP_URL ?? '').trim().replace(/\/+$/, '');
-  if (!/^https:\/\/[^/?#\s]+$/i.test(base)) return { ok: false, message: 'APP_URL must be the app\'s public https address, without a path.' };
+  const target = String(env.CRON_TARGET_URL ?? '').trim().replace(/\/+$/, '');
+  const base = target || String(env.APP_URL ?? '').trim().replace(/\/+$/, '');
+  if (target && !/^https?:\/\/[^/?#\s]+$/i.test(target)) return { ok: false, message: 'CRON_TARGET_URL must be an http or https address, without a path.' };
+  if (!target && !/^https:\/\/[^/?#\s]+$/i.test(base)) return { ok: false, message: 'APP_URL must be the app\'s public https address, without a path.' };
   const secret = String(env.CRON_SECRET ?? '');
   if (secret.length < 16) return { ok: false, message: 'CRON_SECRET must be set (16 or more characters).' };
   const timeout = Number(env.CRON_TIMEOUT_MS) > 0 ? Number(env.CRON_TIMEOUT_MS) : DEFAULT_TIMEOUT_MS;
