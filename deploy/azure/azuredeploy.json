@@ -1,13 +1,33 @@
 {
   "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "languageVersion": "2.0",
   "contentVersion": "1.0.0.0",
   "metadata": {
     "_generator": {
       "name": "bicep",
       "version": "0.48.1.52935",
-      "templateHash": "18286160838102532207"
+      "templateHash": "1641861415273416569"
     }
   },
+  "functions": [
+    {
+      "namespace": "__bicep",
+      "members": {
+        "vaultSecretName": {
+          "parameters": [
+            {
+              "type": "string",
+              "name": "setting"
+            }
+          ],
+          "output": {
+            "type": "string",
+            "value": "[toLower(replace(parameters('setting'), '_', '-'))]"
+          }
+        }
+      }
+    }
+  ],
   "parameters": {
     "appName": {
       "type": "string",
@@ -115,35 +135,51 @@
       "type": "object",
       "defaultValue": {},
       "metadata": {
-        "description": "Other plain settings as a JSON object, for example {\"CHAT_PROVIDER\": \"azure\", \"AZURE_RESOURCE_NAME\": \"my-resource\"}."
+        "description": "Other plain settings as a JSON object, for example {\"CHAT_PROVIDER\": \"azure\", \"AZURE_RESOURCE_NAME\": \"my-resource\"}. Add \"APP_URL\" here when the app has its own domain."
       }
     },
     "extraSecrets": {
       "type": "secureObject",
       "defaultValue": {},
       "metadata": {
-        "description": "Other secret settings as a JSON object, for example {\"SSO_CLIENT_SECRET\": \"...\"}. Stored in Key Vault."
+        "description": "Other secret settings as a JSON object, for example {\"SSO_CLIENT_SECRET\": \"...\"}. Names use letters, digits and underscores. Stored in Key Vault."
       }
     },
     "trustedIpHeader": {
       "type": "string",
       "defaultValue": "",
       "metadata": {
-        "description": "Leave empty unless a proxy you control sits in front of the app, overwrites this header with the client IP and is the only way in. Password sign-in needs it. See docs/deploy.md."
+        "description": "Leave empty. Set it only when a proxy you control overwrites this header with the visitor's IP address on every request, and Allowed Ip Ranges admits only that proxy. Password sign-in needs it. See docs/deploy.md."
+      }
+    },
+    "allowedIpRanges": {
+      "type": "array",
+      "defaultValue": [],
+      "metadata": {
+        "description": "Leave empty to accept requests from anywhere. Otherwise only these IPv4 ranges in CIDR notation, for example [\"203.0.113.10/32\"], can reach the app's own address. See docs/deploy.md."
       }
     },
     "sessionSecret": {
       "type": "securestring",
       "defaultValue": "[format('{0}{1}', newGuid(), newGuid())]",
+      "minLength": 32,
       "metadata": {
-        "description": "SESSION_SECRET. Leave the generated value."
+        "description": "SESSION_SECRET, which signs sign-in sessions. Leave the generated value. Stored in Key Vault."
       }
     },
     "cronSecret": {
       "type": "securestring",
       "defaultValue": "[newGuid()]",
+      "minLength": 16,
       "metadata": {
-        "description": "CRON_SECRET for the scheduled jobs. Leave the generated value."
+        "description": "CRON_SECRET for the scheduled jobs. Leave the generated value. Stored in Key Vault."
+      }
+    },
+    "keepGeneratedSecrets": {
+      "type": "bool",
+      "defaultValue": false,
+      "metadata": {
+        "description": "false on the first deployment. Set it to true when deploying again: Key Vault then keeps its SESSION_SECRET and CRON_SECRET, the two fields above are ignored, and nobody is signed out."
       }
     },
     "minReplicas": {
@@ -166,28 +202,22 @@
   "variables": {
     "copy": [
       {
-        "name": "allSecrets",
-        "count": "[length(concat(variables('baseSecrets'), map(items(parameters('extraSecrets')), lambda('entry', createObject('setting', lambdaVariables('entry').key, 'value', lambdaVariables('entry').value)))))]",
-        "input": {
-          "setting": "[concat(variables('baseSecrets'), map(items(parameters('extraSecrets')), lambda('entry', createObject('setting', lambdaVariables('entry').key, 'value', lambdaVariables('entry').value))))[copyIndex('allSecrets')].setting]",
-          "value": "[concat(variables('baseSecrets'), map(items(parameters('extraSecrets')), lambda('entry', createObject('setting', lambdaVariables('entry').key, 'value', lambdaVariables('entry').value))))[copyIndex('allSecrets')].value]",
-          "name": "[toLower(replace(concat(variables('baseSecrets'), map(items(parameters('extraSecrets')), lambda('entry', createObject('setting', lambdaVariables('entry').key, 'value', lambdaVariables('entry').value))))[copyIndex('allSecrets')].setting, '_', '-'))]"
-        }
-      },
-      {
         "name": "secretRefs",
-        "count": "[length(variables('allSecrets'))]",
+        "count": "[length(variables('secretSettings'))]",
         "input": {
-          "name": "[variables('allSecrets')[copyIndex('secretRefs')].name]",
-          "keyVaultUrl": "[format('{0}/secrets/{1}', variables('vaultUri'), variables('allSecrets')[copyIndex('secretRefs')].name)]",
+          "name": "[__bicep.vaultSecretName(variables('secretSettings')[copyIndex('secretRefs')])]",
+          "keyVaultUrl": "[format('{0}/secrets/{1}', variables('vaultUri'), __bicep.vaultSecretName(variables('secretSettings')[copyIndex('secretRefs')]))]",
           "identity": "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-identity', parameters('appName')))]"
         }
       }
     ],
     "suffix": "[uniqueString(resourceGroup().id, parameters('appName'))]",
     "signInSetting": "[if(equals(parameters('signInMode'), 'accounts'), 'MOTHERDUCK_APP_TOKEN', 'DEMO_PASSWORD')]",
-    "baseSecrets": "[concat(createArray(createObject('setting', 'SESSION_SECRET', 'value', parameters('sessionSecret')), createObject('setting', 'CRON_SECRET', 'value', parameters('cronSecret')), createObject('setting', variables('signInSetting'), 'value', parameters('signInSecret')), createObject('setting', 'MOTHERDUCK_EMBED_TOKEN', 'value', parameters('motherduckEmbedToken'))), if(empty(parameters('motherduckChatToken')), createArray(), createArray(createObject('setting', 'MOTHERDUCK_CHAT_TOKEN', 'value', parameters('motherduckChatToken')))), if(empty(parameters('modelApiKey')), createArray(), createArray(createObject('setting', parameters('modelApiKeySetting'), 'value', parameters('modelApiKey')))))]",
-    "plainSettings": "[union(parameters('settings'), createObject('MOTHERDUCK_EMBED_USERNAME', parameters('motherduckEmbedUsername'), 'DIVE_OVERVIEW_ID', parameters('diveOverviewId'), 'DIVE_OVERVIEW_CHAT_DATABASE', parameters('diveOverviewChatDatabase'), 'APP_TITLE', parameters('appTitle')), if(empty(parameters('trustedIpHeader')), createObject(), createObject('AUTH_TRUSTED_IP_HEADER', parameters('trustedIpHeader'))))]",
+    "secretValues": "[union(parameters('extraSecrets'), if(parameters('keepGeneratedSecrets'), createObject(), createObject('SESSION_SECRET', parameters('sessionSecret'), 'CRON_SECRET', parameters('cronSecret'))), createObject(format('{0}', variables('signInSetting')), parameters('signInSecret'), 'MOTHERDUCK_EMBED_TOKEN', parameters('motherduckEmbedToken')), if(empty(parameters('motherduckChatToken')), createObject(), createObject('MOTHERDUCK_CHAT_TOKEN', parameters('motherduckChatToken'))), if(empty(parameters('modelApiKey')), createObject(), createObject(format('{0}', parameters('modelApiKeySetting')), parameters('modelApiKey'))))]",
+    "secretSettings": "[union(createArray('SESSION_SECRET', 'CRON_SECRET'), objectKeys(variables('secretValues')))]",
+    "namedSettings": "[filter(items(createObject('MOTHERDUCK_EMBED_USERNAME', parameters('motherduckEmbedUsername'), 'DIVE_OVERVIEW_ID', parameters('diveOverviewId'), 'DIVE_OVERVIEW_CHAT_DATABASE', parameters('diveOverviewChatDatabase'), 'APP_TITLE', parameters('appTitle'), 'AUTH_TRUSTED_IP_HEADER', parameters('trustedIpHeader'))), lambda('entry', not(empty(lambdaVariables('entry').value))))]",
+    "plainSettings": "[union(parameters('settings'), toObject(variables('namedSettings'), lambda('entry', lambdaVariables('entry').key), lambda('entry', lambdaVariables('entry').value)))]",
+    "plainEnv": "[map(filter(items(variables('plainSettings')), lambda('entry', and(not(equals(lambdaVariables('entry').key, 'APP_URL')), not(contains(variables('secretSettings'), lambdaVariables('entry').key))))), lambda('entry', createObject('name', lambdaVariables('entry').key, 'value', string(lambdaVariables('entry').value))))]",
     "keyVaultSecretsUser": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '4633458b-17de-408a-b874-0445c86b69e6')]",
     "vaultUri": "[format('https://{0}{1}', format('kv-{0}', variables('suffix')), environment().suffixes.keyvaultDns)]",
     "cronSecretRef": "[filter(variables('secretRefs'), lambda('ref', equals(lambdaVariables('ref').name, 'cron-secret')))]",
@@ -204,14 +234,14 @@
       }
     ]
   },
-  "resources": [
-    {
+  "resources": {
+    "identity": {
       "type": "Microsoft.ManagedIdentity/userAssignedIdentities",
       "apiVersion": "2023-01-31",
       "name": "[format('{0}-identity', parameters('appName'))]",
       "location": "[parameters('location')]"
     },
-    {
+    "vault": {
       "type": "Microsoft.KeyVault/vaults",
       "apiVersion": "2023-07-01",
       "name": "[format('kv-{0}', variables('suffix'))]",
@@ -227,37 +257,37 @@
         "softDeleteRetentionInDays": 7
       }
     },
-    {
+    "vaultSecrets": {
       "copy": {
         "name": "vaultSecrets",
-        "count": "[length(variables('allSecrets'))]"
+        "count": "[length(items(variables('secretValues')))]"
       },
       "type": "Microsoft.KeyVault/vaults/secrets",
       "apiVersion": "2023-07-01",
-      "name": "[format('{0}/{1}', format('kv-{0}', variables('suffix')), variables('allSecrets')[copyIndex()].name)]",
+      "name": "[format('{0}/{1}', format('kv-{0}', variables('suffix')), __bicep.vaultSecretName(items(variables('secretValues'))[copyIndex()].key))]",
       "properties": {
-        "value": "[variables('allSecrets')[copyIndex()].value]"
+        "value": "[items(variables('secretValues'))[copyIndex()].value]"
       },
       "dependsOn": [
-        "[resourceId('Microsoft.KeyVault/vaults', format('kv-{0}', variables('suffix')))]"
+        "vault"
       ]
     },
-    {
+    "readSecrets": {
       "type": "Microsoft.Authorization/roleAssignments",
       "apiVersion": "2022-04-01",
       "scope": "[resourceId('Microsoft.KeyVault/vaults', format('kv-{0}', variables('suffix')))]",
       "name": "[guid(resourceId('Microsoft.KeyVault/vaults', format('kv-{0}', variables('suffix'))), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-identity', parameters('appName'))), variables('keyVaultSecretsUser'))]",
       "properties": {
         "roleDefinitionId": "[variables('keyVaultSecretsUser')]",
-        "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-identity', parameters('appName'))), '2023-01-31').principalId]",
+        "principalId": "[reference('identity').principalId]",
         "principalType": "ServicePrincipal"
       },
       "dependsOn": [
-        "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-identity', parameters('appName')))]",
-        "[resourceId('Microsoft.KeyVault/vaults', format('kv-{0}', variables('suffix')))]"
+        "identity",
+        "vault"
       ]
     },
-    {
+    "logs": {
       "type": "Microsoft.OperationalInsights/workspaces",
       "apiVersion": "2023-09-01",
       "name": "[format('{0}-logs', parameters('appName'))]",
@@ -269,7 +299,7 @@
         "retentionInDays": 30
       }
     },
-    {
+    "environment": {
       "type": "Microsoft.App/managedEnvironments",
       "apiVersion": "2025-01-01",
       "name": "[format('{0}-env', parameters('appName'))]",
@@ -278,8 +308,8 @@
         "appLogsConfiguration": {
           "destination": "log-analytics",
           "logAnalyticsConfiguration": {
-            "customerId": "[reference(resourceId('Microsoft.OperationalInsights/workspaces', format('{0}-logs', parameters('appName'))), '2023-09-01').customerId]",
-            "sharedKey": "[listKeys(resourceId('Microsoft.OperationalInsights/workspaces', format('{0}-logs', parameters('appName'))), '2023-09-01').primarySharedKey]"
+            "customerId": "[reference('logs').customerId]",
+            "sharedKey": "[listKeys('logs', '2023-09-01').primarySharedKey]"
           }
         },
         "workloadProfiles": [
@@ -290,10 +320,11 @@
         ]
       },
       "dependsOn": [
-        "[resourceId('Microsoft.OperationalInsights/workspaces', format('{0}-logs', parameters('appName')))]"
+        "logs",
+        "readSecrets"
       ]
     },
-    {
+    "app": {
       "type": "Microsoft.App/containerApps",
       "apiVersion": "2025-01-01",
       "name": "[parameters('appName')]",
@@ -309,6 +340,17 @@
         "workloadProfileName": "Consumption",
         "configuration": {
           "ingress": {
+            "copy": [
+              {
+                "name": "ipSecurityRestrictions",
+                "count": "[length(parameters('allowedIpRanges'))]",
+                "input": {
+                  "name": "[format('allow-{0}', copyIndex('ipSecurityRestrictions'))]",
+                  "ipAddressRange": "[parameters('allowedIpRanges')[copyIndex('ipSecurityRestrictions')]]",
+                  "action": "Allow"
+                }
+              }
+            ],
             "external": true,
             "targetPort": 3000,
             "transport": "auto",
@@ -325,7 +367,7 @@
                 "cpu": "[json('0.5')]",
                 "memory": "1Gi"
               },
-              "env": "[concat(map(items(variables('plainSettings')), lambda('entry', createObject('name', lambdaVariables('entry').key, 'value', string(lambdaVariables('entry').value)))), createArray(createObject('name', 'APP_URL', 'value', format('https://{0}.{1}', parameters('appName'), reference(resourceId('Microsoft.App/managedEnvironments', format('{0}-env', parameters('appName'))), '2025-01-01').defaultDomain))), map(variables('allSecrets'), lambda('item', createObject('name', lambdaVariables('item').setting, 'secretRef', lambdaVariables('item').name))))]",
+              "env": "[concat(variables('plainEnv'), createArray(createObject('name', 'APP_URL', 'value', coalesce(tryGet(parameters('settings'), 'APP_URL'), format('https://{0}.{1}', parameters('appName'), reference('environment').defaultDomain)))), map(variables('secretSettings'), lambda('setting', createObject('name', lambdaVariables('setting'), 'secretRef', __bicep.vaultSecretName(lambdaVariables('setting'))))))]",
               "probes": [
                 {
                   "type": "Startup",
@@ -354,14 +396,14 @@
         }
       },
       "dependsOn": [
-        "[resourceId('Microsoft.App/managedEnvironments', format('{0}-env', parameters('appName')))]",
-        "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-identity', parameters('appName')))]",
-        "[extensionResourceId(resourceId('Microsoft.KeyVault/vaults', format('kv-{0}', variables('suffix'))), 'Microsoft.Authorization/roleAssignments', guid(resourceId('Microsoft.KeyVault/vaults', format('kv-{0}', variables('suffix'))), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-identity', parameters('appName'))), variables('keyVaultSecretsUser')))]",
-        "[resourceId('Microsoft.KeyVault/vaults', format('kv-{0}', variables('suffix')))]",
+        "environment",
+        "identity",
+        "readSecrets",
+        "vault",
         "vaultSecrets"
       ]
     },
-    {
+    "jobs": {
       "copy": {
         "name": "jobs",
         "count": "[length(variables('cronJobs'))]"
@@ -386,7 +428,7 @@
             "parallelism": 1,
             "replicaCompletionCount": 1
           },
-          "replicaTimeout": 600,
+          "replicaTimeout": 900,
           "replicaRetryLimit": 1,
           "secrets": "[variables('cronSecretRef')]"
         },
@@ -407,7 +449,7 @@
               "env": [
                 {
                   "name": "APP_URL",
-                  "value": "[format('https://{0}.{1}', parameters('appName'), reference(resourceId('Microsoft.App/managedEnvironments', format('{0}-env', parameters('appName'))), '2025-01-01').defaultDomain)]"
+                  "value": "[coalesce(tryGet(parameters('settings'), 'APP_URL'), format('https://{0}.{1}', parameters('appName'), reference('environment').defaultDomain))]"
                 },
                 {
                   "name": "CRON_SECRET",
@@ -419,21 +461,21 @@
         }
       },
       "dependsOn": [
-        "[resourceId('Microsoft.App/managedEnvironments', format('{0}-env', parameters('appName')))]",
-        "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-identity', parameters('appName')))]",
-        "[extensionResourceId(resourceId('Microsoft.KeyVault/vaults', format('kv-{0}', variables('suffix'))), 'Microsoft.Authorization/roleAssignments', guid(resourceId('Microsoft.KeyVault/vaults', format('kv-{0}', variables('suffix'))), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-identity', parameters('appName'))), variables('keyVaultSecretsUser')))]",
-        "[resourceId('Microsoft.KeyVault/vaults', format('kv-{0}', variables('suffix')))]",
+        "environment",
+        "identity",
+        "readSecrets",
+        "vault",
         "vaultSecrets"
       ]
     }
-  ],
+  },
   "outputs": {
     "appUrl": {
       "type": "string",
       "metadata": {
-        "description": "The app address. APP_URL is already set to it."
+        "description": "The app address, which APP_URL is set to."
       },
-      "value": "[format('https://{0}.{1}', parameters('appName'), reference(resourceId('Microsoft.App/managedEnvironments', format('{0}-env', parameters('appName'))), '2025-01-01').defaultDomain)]"
+      "value": "[coalesce(tryGet(parameters('settings'), 'APP_URL'), format('https://{0}.{1}', parameters('appName'), reference('environment').defaultDomain))]"
     },
     "keyVaultName": {
       "type": "string",

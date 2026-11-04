@@ -251,31 +251,69 @@ The button opens the Azure portal with [`deploy/azure/azuredeploy.json`](../depl
 | **Model Api Key Setting**, **Model Api Key** | Your provider's setting name and key |
 | **Motherduck Embed Username**, **Dive Overview Id**, **Dive Overview Chat Database** | As in the [settings reference](configuration.md#dashboard-embedded-dive) |
 | **Settings**, **Extra Secrets** | Optional JSON objects for other settings, for example `{"CHAT_PROVIDER": "azure", "AZURE_RESOURCE_NAME": "my-resource"}` |
+| **Trusted Ip Header**, **Allowed Ip Ranges** | Leave them empty. See [Password sign-in on Azure](#password-sign-in-on-azure). |
 | **Session Secret**, **Cron Secret** | Leave them as they are. They are generated. |
+| **Keep Generated Secrets** | `false` on the first deployment. See [Deploy again on Azure](#deploy-again-on-azure). |
 
 Secret fields are hidden, are not stored in the deployment history, and go only into Key Vault. Deployment takes about five minutes. The **Outputs** of the deployment show `appUrl`.
 
 ### Repeatable: Bicep
 
+The Azure CLI prompts only for parameters that have no default value, so it never asks for the chat token or the model provider key. Describe the deployment in a Bicep parameters file instead. The file reads each secret from an environment variable and holds no secret values:
+
 ```sh
-az group create --name dive-chat --location westeurope
-az deployment group create --resource-group dive-chat --template-file deploy/azure/main.bicep \
-  --parameters motherduckEmbedUsername=<service account> diveOverviewId=<dive id> diveOverviewChatDatabase=<database>
+cat > deploy/azure/dive-chat.bicepparam <<'EOF'
+using 'main.bicep'
+
+param motherduckEmbedUsername = '<service account>'
+param diveOverviewId = '<dive id>'
+param diveOverviewChatDatabase = '<database>'
+param modelApiKeySetting = 'OPENAI_API_KEY'
+param keepGeneratedSecrets = false
+
+// Read from the environment when the deployment starts.
+param signInSecret = readEnvironmentVariable('MOTHERDUCK_APP_TOKEN')
+param motherduckEmbedToken = readEnvironmentVariable('MOTHERDUCK_EMBED_TOKEN')
+param motherduckChatToken = readEnvironmentVariable('MOTHERDUCK_CHAT_TOKEN', '')
+param modelApiKey = readEnvironmentVariable('OPENAI_API_KEY', '')
+EOF
 ```
 
-The Azure CLI asks for each secret parameter with hidden input. After editing `main.bicep`, rebuild the ARM template with the same Bicep version as CI (see `.github/workflows/deploy-templates.yml`): `az bicep build --file deploy/azure/main.bicep --outfile deploy/azure/azuredeploy.json`. CI fails when the two differ.
+Use your provider's setting name for both `modelApiKeySetting` and the variable that `modelApiKey` reads. Then, with those variables in your environment from your secret manager, deploy:
+
+```sh
+az group create --name dive-chat --location westeurope
+az deployment group create --resource-group dive-chat --parameters deploy/azure/dive-chat.bicepparam
+```
+
+A required variable that is missing stops the deployment before anything is created. After editing `main.bicep`, rebuild the ARM template with the same Bicep version as CI (see `.github/workflows/deploy-templates.yml`): `az bicep build --file deploy/azure/main.bicep --outfile deploy/azure/azuredeploy.json`. CI fails when the two differ.
+
+### Deploy again on Azure
+
+Deploying the template again, to change a setting or to add a domain, sends every value again:
+
+- Set **Keep Generated Secrets** to `true` (`keepGeneratedSecrets = true` in the parameters file). Key Vault then keeps its `SESSION_SECRET` and `CRON_SECRET`. With `false`, the deployment stores new values, which signs everyone out.
+- Enter every secret again, including the optional ones. A secret field left empty removes that setting from the app.
+
+Container Apps reads a new secret value from Key Vault within 30 minutes and restarts the app to use it ([Microsoft Learn](https://learn.microsoft.com/azure/container-apps/manage-secrets#key-vault-secret-uri-and-secret-rotation)).
 
 ### Password sign-in on Azure
 
-Container Apps does not provide a header that it overwrites with the visitor's address. For the shared password, put a proxy you control in front of the app that overwrites a header such as `X-Client-IP` with the client address, and make it the only way in, for example Application Gateway with an internal Container Apps environment. Then set **Sign In Mode** to `password`, **Sign In Secret** to the password and **Trusted Ip Header** to that header. Otherwise use accounts.
+Container Apps does not overwrite any header with the visitor's address: it appends to `X-Forwarded-For`, and the app's own address passes on any header a visitor sends. If **Trusted Ip Header** is set while that address is open, anyone can choose the address that the app counts failed sign-ins against, and the limit on password guessing no longer applies. Leave it empty unless all of the following are in place:
+
+1. A proxy you control sits in front of the app and sets the header on every request, replacing any value the visitor sent. For example, an Application Gateway v2 [rewrite rule](https://learn.microsoft.com/azure/application-gateway/rewrite-http-headers-url) that sets the request header `X-Client-IP` to `{var_client_ip}`.
+2. **Allowed Ip Ranges** lists only the proxy's outbound addresses, for example `["203.0.113.10/32"]`, so that nothing else reaches the app's own address ([IP restrictions](https://learn.microsoft.com/azure/container-apps/ip-restrictions)). Set them in the template rather than in the portal, because deploying the template again replaces the app's ingress settings.
+3. **Settings** has `"APP_URL": "https://your.domain"`, the address of the proxy, so that the scheduled jobs reach the app through it.
+
+Then set **Sign In Mode** to `password`, **Sign In Secret** to the password and **Trusted Ip Header** to `x-client-ip`. Azure Front Door on its own is not enough: every Front Door profile shares the same outbound addresses, so another customer's profile could reach the app and set the header ([Front Door headers](https://learn.microsoft.com/azure/frontdoor/front-door-http-headers-protocol)). Otherwise use accounts.
 
 ### APP_URL on Azure
 
-`APP_URL` is set for you to `https://<appName>.<environment domain>`, the app's address in Container Apps. If you add a custom domain later, add `"APP_URL": "https://your.domain"` to **Settings** and deploy again.
+`APP_URL` is set for you to `https://<appName>.<environment domain>`, the app's address in Container Apps. If you add a custom domain later, add `"APP_URL": "https://your.domain"` to **Settings** and [deploy again](#deploy-again-on-azure). The app and the scheduled jobs then use that address.
 
 ### Scheduled calls on Azure
 
-Two Container Apps jobs, `<appName>-daily` (04:17 UTC) and `<appName>-digest` (Mondays 08:00 UTC), run the app image once to call the route with `CRON_SECRET` from Key Vault. To run one now: `az containerapp job start --name dive-chat-daily --resource-group <group>`. **Execution history** on the job shows each run.
+Two Container Apps jobs, `<appName>-daily` (04:17 UTC) and `<appName>-digest` (Mondays 08:00 UTC), run the app image once to call the route at `APP_URL` with `CRON_SECRET` from Key Vault. Container Apps evaluates job schedules in UTC ([jobs](https://learn.microsoft.com/azure/container-apps/jobs#scheduled-jobs)). A failed run is retried once, and each run, retry included, stops after 15 minutes. To run one now: `az containerapp job start --name dive-chat-daily --resource-group <group>`. **Execution history** on the job shows each run.
 
 ### Upgrade on Azure
 
@@ -286,7 +324,7 @@ az containerapp job update --name dive-chat-daily --resource-group <group> --ima
 az containerapp job update --name dive-chat-digest --resource-group <group> --image "$image"
 ```
 
-Avoid redeploying the whole template only to upgrade: it generates a new `SESSION_SECRET`, which signs everyone out, unless you pass the current value.
+These commands change only the image. To upgrade by deploying the template again instead, set **Image** and follow [Deploy again on Azure](#deploy-again-on-azure).
 
 ### Cost on Azure
 
@@ -304,7 +342,8 @@ Delete the resource group: `az group delete --name <group>`. Key Vault keeps a d
 | The AWS app shows connection or sign-in errors after the first deploy | The secrets still hold their random placeholders, or the service has not restarted since you changed them. See [Fill in the secrets](#2-fill-in-the-secrets). |
 | The AWS stack fails at the VPC origin | A zone in your Region lacks CloudFront VPC origins. Set `availabilityZones`. |
 | Terraform says a secret was not found | Run `create-secrets.sh` with the same `--prefix` and `--secrets`. |
-| The Azure app shows a secret error on first deploy | The new identity's Key Vault access can take a few minutes to apply. Run the deployment again. |
+| The first Azure deployment fails at the container app or a job with a Key Vault secret error | The new identity's Key Vault role can take up to 10 minutes to take effect. Wait, then run the same deployment again with **Keep Generated Secrets** set to `false`. |
+| Everyone is signed out after deploying the Azure template again | **Keep Generated Secrets** was `false`, so the deployment stored a new `SESSION_SECRET`. Set it to `true` for later deployments. See [Deploy again on Azure](#deploy-again-on-azure). |
 | SSO says it **did not complete** | Register `<APP_URL>/api/account/callback/<provider id>`, using the `APP_URL` address. |
 | A scheduled call fails with 404 | `CRON_SECRET` is missing or shorter than 16 characters in the app, or the job reads a different secret. |
 

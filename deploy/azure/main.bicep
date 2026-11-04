@@ -52,23 +52,31 @@ param diveOverviewChatDatabase string = ''
 @description('APP_TITLE: the name shown in the header. Optional.')
 param appTitle string = ''
 
-@description('Other plain settings as a JSON object, for example {"CHAT_PROVIDER": "azure", "AZURE_RESOURCE_NAME": "my-resource"}.')
+@description('Other plain settings as a JSON object, for example {"CHAT_PROVIDER": "azure", "AZURE_RESOURCE_NAME": "my-resource"}. Add "APP_URL" here when the app has its own domain.')
 param settings object = {}
 
 @secure()
-@description('Other secret settings as a JSON object, for example {"SSO_CLIENT_SECRET": "..."}. Stored in Key Vault.')
+@description('Other secret settings as a JSON object, for example {"SSO_CLIENT_SECRET": "..."}. Names use letters, digits and underscores. Stored in Key Vault.')
 param extraSecrets object = {}
 
-@description('Leave empty unless a proxy you control sits in front of the app, overwrites this header with the client IP and is the only way in. Password sign-in needs it. See docs/deploy.md.')
+@description('Leave empty. Set it only when a proxy you control overwrites this header with the visitor\'s IP address on every request, and Allowed Ip Ranges admits only that proxy. Password sign-in needs it. See docs/deploy.md.')
 param trustedIpHeader string = ''
 
+@description('Leave empty to accept requests from anywhere. Otherwise only these IPv4 ranges in CIDR notation, for example ["203.0.113.10/32"], can reach the app\'s own address. See docs/deploy.md.')
+param allowedIpRanges array = []
+
 @secure()
-@description('SESSION_SECRET. Leave the generated value.')
+@minLength(32)
+@description('SESSION_SECRET, which signs sign-in sessions. Leave the generated value. Stored in Key Vault.')
 param sessionSecret string = '${newGuid()}${newGuid()}'
 
 @secure()
-@description('CRON_SECRET for the scheduled jobs. Leave the generated value.')
+@minLength(16)
+@description('CRON_SECRET for the scheduled jobs. Leave the generated value. Stored in Key Vault.')
 param cronSecret string = newGuid()
+
+@description('false on the first deployment. Set it to true when deploying again: Key Vault then keeps its SESSION_SECRET and CRON_SECRET, the two fields above are ignored, and nobody is signed out.')
+param keepGeneratedSecrets bool = false
 
 @description('Replicas kept running. 0 scales to zero when idle; the first request then takes a few seconds.')
 @minValue(0)
@@ -80,28 +88,33 @@ param maxReplicas int = 2
 
 var suffix = uniqueString(resourceGroup().id, appName)
 var signInSetting = signInMode == 'accounts' ? 'MOTHERDUCK_APP_TOKEN' : 'DEMO_PASSWORD'
-var baseSecrets = concat(
-  [
-    { setting: 'SESSION_SECRET', value: sessionSecret }
-    { setting: 'CRON_SECRET', value: cronSecret }
-    { setting: signInSetting, value: signInSecret }
-    { setting: 'MOTHERDUCK_EMBED_TOKEN', value: motherduckEmbedToken }
-  ],
-  empty(motherduckChatToken) ? [] : [{ setting: 'MOTHERDUCK_CHAT_TOKEN', value: motherduckChatToken }],
-  empty(modelApiKey) ? [] : [{ setting: modelApiKeySetting, value: modelApiKey }]
+// Setting name to value. The named parameters win over the same names in extraSecrets.
+var secretValues = union(
+  extraSecrets,
+  keepGeneratedSecrets ? {} : { SESSION_SECRET: sessionSecret, CRON_SECRET: cronSecret },
+  { '${signInSetting}': signInSecret, MOTHERDUCK_EMBED_TOKEN: motherduckEmbedToken },
+  empty(motherduckChatToken) ? {} : { MOTHERDUCK_CHAT_TOKEN: motherduckChatToken },
+  empty(modelApiKey) ? {} : { '${modelApiKeySetting}': modelApiKey }
 )
+// Every secret setting the app reads from Key Vault. With keepGeneratedSecrets, the template does not
+// write SESSION_SECRET and CRON_SECRET, but the app and the jobs still read the values already stored.
+var secretSettings = union(['SESSION_SECRET', 'CRON_SECRET'], objectKeys(secretValues))
 // Key Vault secret names allow letters, digits and hyphens: SESSION_SECRET is stored as session-secret.
-var allSecrets = [for item in concat(baseSecrets, map(items(extraSecrets), entry => { setting: entry.key, value: entry.value })): {
-  setting: item.setting
-  value: item.value
-  name: toLower(replace(item.setting, '_', '-'))
-}]
-var plainSettings = union(settings, {
+func vaultSecretName(setting string) string => toLower(replace(setting, '_', '-'))
+// Empty parameters do not override the same names in settings, and do not become empty variables.
+var namedSettings = filter(items({
   MOTHERDUCK_EMBED_USERNAME: motherduckEmbedUsername
   DIVE_OVERVIEW_ID: diveOverviewId
   DIVE_OVERVIEW_CHAT_DATABASE: diveOverviewChatDatabase
   APP_TITLE: appTitle
-}, empty(trustedIpHeader) ? {} : { AUTH_TRUSTED_IP_HEADER: trustedIpHeader })
+  AUTH_TRUSTED_IP_HEADER: trustedIpHeader
+}), entry => !empty(entry.value))
+var plainSettings = union(settings, toObject(namedSettings, entry => entry.key, entry => entry.value))
+// APP_URL is set once, below. A name that is also a secret setting is read from Key Vault only.
+var plainEnv = map(
+  filter(items(plainSettings), entry => entry.key != 'APP_URL' && !contains(secretSettings, entry.key)),
+  entry => { name: entry.key, value: string(entry.value) }
+)
 var keyVaultSecretsUser = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '4633458b-17de-408a-b874-0445c86b69e6')
 
 resource identity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
@@ -121,9 +134,9 @@ resource vault 'Microsoft.KeyVault/vaults@2023-07-01' = {
   }
 }
 
-resource vaultSecrets 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = [for item in allSecrets: {
+resource vaultSecrets 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = [for item in items(secretValues): {
   parent: vault
-  name: item.name
+  name: vaultSecretName(item.key)
   properties: { value: item.value }
 }]
 
@@ -146,6 +159,8 @@ resource logs 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
   }
 }
 
+// The environment waits for the Key Vault role, so that its creation, which takes a few minutes,
+// gives the role time to take effect before the app and the jobs first read their secrets.
 resource environment 'Microsoft.App/managedEnvironments@2025-01-01' = {
   name: '${appName}-env'
   location: location
@@ -159,13 +174,15 @@ resource environment 'Microsoft.App/managedEnvironments@2025-01-01' = {
     }
     workloadProfiles: [{ name: 'Consumption', workloadProfileType: 'Consumption' }]
   }
+  dependsOn: [readSecrets]
 }
 
-var appUrl = 'https://${appName}.${environment.properties.defaultDomain}'
+// The app's own address in Container Apps, unless settings gives the address of its own domain.
+var appUrl = settings.?APP_URL ?? 'https://${appName}.${environment.properties.defaultDomain}'
 var vaultUri = 'https://${vault.name}${az.environment().suffixes.keyvaultDns}'
-var secretRefs = [for item in allSecrets: {
-  name: item.name
-  keyVaultUrl: '${vaultUri}/secrets/${item.name}'
+var secretRefs = [for setting in secretSettings: {
+  name: vaultSecretName(setting)
+  keyVaultUrl: '${vaultUri}/secrets/${vaultSecretName(setting)}'
   identity: identity.id
 }]
 var cronSecretRef = filter(secretRefs, ref => ref.name == 'cron-secret')
@@ -186,6 +203,11 @@ resource app 'Microsoft.App/containerApps@2025-01-01' = {
         targetPort: 3000
         transport: 'auto'
         allowInsecure: false
+        ipSecurityRestrictions: [for (range, index) in allowedIpRanges: {
+          name: 'allow-${index}'
+          ipAddressRange: range
+          action: 'Allow'
+        }]
       }
       secrets: secretRefs
     }
@@ -196,9 +218,9 @@ resource app 'Microsoft.App/containerApps@2025-01-01' = {
           image: image
           resources: { cpu: json('0.5'), memory: '1Gi' }
           env: concat(
-            map(items(plainSettings), entry => { name: entry.key, value: string(entry.value) }),
+            plainEnv,
             [{ name: 'APP_URL', value: appUrl }],
-            map(allSecrets, item => { name: item.setting, secretRef: item.name })
+            map(secretSettings, setting => { name: setting, secretRef: vaultSecretName(setting) })
           )
           probes: [
             { type: 'Startup', httpGet: { path: '/api/auth', port: 3000 }, periodSeconds: 5, failureThreshold: 30 }
@@ -239,7 +261,8 @@ resource jobs 'Microsoft.App/jobs@2025-01-01' = [for job in cronJobs: {
         parallelism: 1
         replicaCompletionCount: 1
       }
-      replicaTimeout: 600
+      // deploy/cron.mjs waits up to 330 seconds per call. The timeout also covers the one retry.
+      replicaTimeout: 900
       replicaRetryLimit: 1
       secrets: cronSecretRef
     }
@@ -261,7 +284,7 @@ resource jobs 'Microsoft.App/jobs@2025-01-01' = [for job in cronJobs: {
   dependsOn: [readSecrets, vaultSecrets]
 }]
 
-@description('The app address. APP_URL is already set to it.')
+@description('The app address, which APP_URL is set to.')
 output appUrl string = appUrl
 
 @description('The Key Vault that holds the secrets.')

@@ -56,7 +56,10 @@ jobs:
           curl -fsSL -o "$RUNNER_TEMP/bicep" "https://github.com/Azure/bicep/releases/download/$BICEP_VERSION/bicep-linux-x64"
           echo "$BICEP_SHA256  $RUNNER_TEMP/bicep" | sha256sum -c -
           chmod +x "$RUNNER_TEMP/bicep"
-      - run: $RUNNER_TEMP/bicep lint deploy/azure/main.bicep
+      - name: Bicep lint reports no errors or warnings
+        run: |
+          output="$("$RUNNER_TEMP/bicep" lint deploy/azure/main.bicep 2>&1)" || { echo "$output"; exit 1; }
+          if [ -n "$output" ]; then echo "$output"; exit 1; fi
       - name: azuredeploy.json matches main.bicep
         run: |
           $RUNNER_TEMP/bicep build deploy/azure/main.bicep --outfile "$RUNNER_TEMP/azuredeploy.json"
@@ -64,6 +67,25 @@ jobs:
             echo "::error::azuredeploy.json is out of date. Run: bicep build deploy/azure/main.bicep --outfile deploy/azure/azuredeploy.json (Bicep $BICEP_VERSION)"
             exit 1
           fi
+      - name: The parameters file in docs/deploy.md compiles against main.bicep
+        env:
+          MOTHERDUCK_APP_TOKEN: ci-placeholder
+          MOTHERDUCK_EMBED_TOKEN: ci-placeholder
+        run: |
+          awk '/^cat > deploy\/azure\/dive-chat.bicepparam <</{found=1; next} /^EOF$/{found=0} found' docs/deploy.md > deploy/azure/dive-chat.bicepparam
+          test -s deploy/azure/dive-chat.bicepparam
+          $RUNNER_TEMP/bicep build-params deploy/azure/dive-chat.bicepparam --outfile "$RUNNER_TEMP/dive-chat.parameters.json"
+      - name: The Deploy to Azure buttons open azuredeploy.json, and every parameter has a description
+        run: |
+          for file in README.md docs/deploy.md; do
+            grep -q 'portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2F.*%2FHEAD%2Fdeploy%2Fazure%2Fazuredeploy.json' "$file" \
+              || { echo "::error file=$file::The Deploy to Azure button does not point to deploy/azure/azuredeploy.json"; exit 1; }
+          done
+          node -e '
+            const template = JSON.parse(require("fs").readFileSync("deploy/azure/azuredeploy.json", "utf8"));
+            const missing = Object.entries(template.parameters).filter(([, p]) => !p.metadata?.description).map(([name]) => name);
+            if (missing.length) { console.error(`Parameters without a description: ${missing.join(", ")}`); process.exit(1); }
+          '
 
   gcp:
     if: github.event_name != 'push' || github.ref_name == github.event.repository.default_branch
