@@ -172,17 +172,25 @@ The app runs on Cloud Run with secrets from Secret Manager. Cloud Scheduler star
 
 The [Run on Google Cloud button](https://github.com/GoogleCloudPlatform/cloud-run-button) opens Cloud Shell and runs [`deploy/gcp/app.json`](../deploy/gcp/app.json). Google labels it "not an officially supported Google product". It deploys accounts mode, so [prepare accounts mode](#prepare-accounts-mode) first. Then it:
 
-1. Asks for the project and Region, then `MOTHERDUCK_EMBED_USERNAME`, `DIVE_OVERVIEW_ID`, `DIVE_OVERVIEW_CHAT_DATABASE` and `APP_TITLE`.
+1. Asks for the project and Region, then `MOTHERDUCK_EMBED_USERNAME`, `DIVE_OVERVIEW_ID`, `DIVE_OVERVIEW_CHAT_DATABASE` and `APP_TITLE`. Each needs a value. Press Enter to keep the suggested title.
 2. Copies the published image into Artifact Registry. A fork with its own published image uses that one.
-3. Asks for your model provider's setting name (default `OPENAI_API_KEY`), then for each missing secret with hidden input: `MOTHERDUCK_APP_TOKEN`, `MOTHERDUCK_EMBED_TOKEN`, `MOTHERDUCK_CHAT_TOKEN` and the model key. It generates `SESSION_SECRET` and `CRON_SECRET`. Each goes straight to Secret Manager as `motherduck-dive-chat-<SETTING>`. Existing secrets are kept.
+3. Asks for your model provider's secret setting names, separated by commas (default `OPENAI_API_KEY`, or for example `AWS_ACCESS_KEY_ID,AWS_SECRET_ACCESS_KEY`). Then it asks for each missing secret with hidden input: `MOTHERDUCK_APP_TOKEN`, `MOTHERDUCK_EMBED_TOKEN`, `MOTHERDUCK_CHAT_TOKEN` and the model provider's secrets. It generates `SESSION_SECRET` and `CRON_SECRET`. Each goes straight to Secret Manager as `motherduck-dive-chat-<SETTING>`. Existing secrets that hold a value are kept.
 4. Creates the Cloud Run service and a service account that can read only those secrets.
-5. Connects the secrets, sets `APP_URL`, and creates the scheduled jobs.
+5. Connects the secrets, sets `APP_URL`, limits the service to two instances, and creates the scheduled jobs.
 
-It prints the app's address at the end.
+It prints the app's address at the end. A model provider other than OpenAI may also need plain settings from [Model providers](model-providers.md). Add them afterward, for example `gcloud run services update motherduck-dive-chat --region <region> --update-env-vars CHAT_PROVIDER=bedrock,AWS_REGION=us-east-1`.
+
+The button runs steps 3 to 5 only when it creates the service. If it stops after the service exists, delete the service with `gcloud run services delete motherduck-dive-chat --region <region>` and click the button again. Secrets that already hold a value are kept.
 
 ### Repeatable: Terraform
 
+This path needs the [gcloud CLI](https://cloud.google.com/sdk/docs/install) and Terraform 1.9 or later on your computer.
+
 ```sh
+# 0. Sign in: gcloud for the secrets script, application default credentials for Terraform
+gcloud auth login
+gcloud auth application-default login
+
 # 1. Create the secrets (hidden prompts; existing secrets are kept)
 deploy/gcp/scripts/create-secrets.sh --project <project id> --sign-in accounts \
   --secrets MOTHERDUCK_EMBED_TOKEN,MOTHERDUCK_CHAT_TOKEN,OPENAI_API_KEY
@@ -200,7 +208,7 @@ Terraform reads only the secrets' names, so no secret value reaches the Terrafor
 
 ### Password sign-in on Google Cloud
 
-Set `domain = "dives.example.com"` and `sign_in_mode = "password"`, and create `<prefix>-DEMO_PASSWORD` with `create-secrets.sh --sign-in password`. Terraform then adds a global external Application Load Balancer with a Google-managed certificate. The load balancer overwrites `X-Client-IP` with the visitor's address ([custom headers](https://cloud.google.com/load-balancing/docs/https/custom-headers)), and Cloud Run accepts traffic only from load balancers in your project. Point an A record for the domain at the `load_balancer_ip` output. The certificate becomes active once DNS resolves, which often takes 15 to 60 minutes.
+Set `domain = "dives.example.com"` and `sign_in_mode = "password"`, and create `<prefix>-DEMO_PASSWORD` with `create-secrets.sh --sign-in password`. Terraform then adds a global external Application Load Balancer with a Google-managed certificate. The load balancer overwrites `X-Client-IP` with the visitor's address ([custom headers](https://cloud.google.com/load-balancing/docs/https/custom-headers)). Cloud Run accepts internet traffic only through the load balancer ([ingress](https://cloud.google.com/run/docs/securing/ingress)), and its `run.app` address is turned off, so no request can reach the app without that header being set. Point an A record for the domain at the `load_balancer_ip` output. The certificate becomes active once DNS resolves, which often takes 15 to 60 minutes.
 
 ### APP_URL on Google Cloud
 
@@ -344,6 +352,7 @@ Delete the resource group: `az group delete --name <group>`. Key Vault keeps a d
 | The AWS app shows connection or sign-in errors after the first deploy | The secrets still hold their random placeholders, or the service has not restarted since you changed them. See [Fill in the secrets](#2-fill-in-the-secrets). |
 | The AWS stack fails at the VPC origin | One of the stack's zones lacks CloudFront VPC origins. Delete the failed stack, then deploy again with two other zones: `AvailabilityZone1` and `AvailabilityZone2` in the console, or `availabilityZones` with CDK. See [AWS](#aws). |
 | Terraform says a secret was not found | Run `create-secrets.sh` with the same `--prefix` and `--secrets`. |
+| The Run on Google Cloud button stopped after it created the service | The button sets up secrets and scheduled jobs only for a new service. Delete the service and click the button again. See [One click: Run on Google Cloud](#one-click-run-on-google-cloud). |
 | The first Azure deployment fails at the container app or a job with a Key Vault secret error | The new identity's Key Vault role can take up to 10 minutes to take effect. Wait, then run the same deployment again with **Keep Generated Secrets** set to `false`. |
 | Everyone is signed out after deploying the Azure template again | **Keep Generated Secrets** was `false`, so the deployment stored a new `SESSION_SECRET`. Set it to `true` for later deployments. See [Deploy again on Azure](#deploy-again-on-azure). |
 | SSO says it **did not complete** | Register `<APP_URL>/api/account/callback/<provider id>`, using the `APP_URL` address. |
