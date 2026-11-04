@@ -16,7 +16,7 @@
 - **An AI analyst next to it.** Viewers ask questions in plain English. The assistant looks up the tables, runs read-only SQL and streams back an answer.
 - **Answers you can check.** Every answer has a "SQL receipt" showing the exact queries behind it.
 - **Context-aware follow-ups.** When a viewer picks a filter in the dashboard, the assistant knows about it. "What about this region?" just works.
-- **OpenAI or Anthropic, sized to the question.** On **Auto**, simple questions go to a small, cheap model and hard ones to a larger one. The app moves up a tier on its own if the small model struggles.
+- **Your choice of models, sized to the question.** Use OpenAI, Anthropic, OpenRouter, Azure OpenAI / Microsoft Foundry, Amazon Bedrock, Google Vertex AI or a self-hosted OpenAI-compatible server, set by environment variables or in the admin **Models** tab ([model providers](docs/model-providers.md)). On **Auto**, simple questions go to a small, cheap model and hard ones to a larger one. The app moves up a tier on its own if the small model struggles.
 - **People, access and an admin portal (optional).** Give each person their own login, choose which dashboards and whether AI chat they get, connect your single sign-on, and read past conversations.
 - **Ready for your customers.** Paste a list of people and send each one a setup link to choose their own password. Put each customer in a group with its own MotherDuck service account and data, and let their own manager add colleagues.
 - **Access that stays in step with MotherDuck.** Give someone a dashboard and the app grants the shares behind it in MotherDuck, then takes them back when access is removed.
