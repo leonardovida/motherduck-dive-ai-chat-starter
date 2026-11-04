@@ -260,4 +260,6 @@ body.is-sidebar-resizing .dive-frame { pointer-events: none; }
 }
 .sidebar-error { margin: 0.25rem 0.5rem 0; color: var(--destructive); font-size: 0.75rem; }
 /* Streamdown puts list markers inside the text, so a wrapped bullet line started under the marker. */
+/* Numbers from 10 up need more room than a bullet; the message clips anything left of its edge. */
 .chat-message [data-streamdown="unordered-list"], .chat-message [data-streamdown="ordered-list"] { padding-left: 1.25rem; list-style-position: outside; }
+.chat-message [data-streamdown="ordered-list"] { padding-left: 2rem; }
