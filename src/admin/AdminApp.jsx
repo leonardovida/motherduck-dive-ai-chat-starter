@@ -9,6 +9,10 @@ import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 import { MessageResponse } from "@/components/ai-elements/message";
 import { authClient } from "@/lib/auth-client.js";
+import { api } from "@/lib/api.mjs";
+import { downloadBlob } from "@/lib/download.mjs";
+import { FEEDBACK_REASONS, MIN_PASSWORD_LENGTH, fill, plural } from "@/lib/text.mjs";
+import { useLatestRequest } from "@/hooks/use-latest-request";
 import ModelsTab from "./ModelsTab.jsx";
 
 // All interface text in one place, like the main app.
@@ -96,7 +100,6 @@ const COPY = {
     digest_not_configured: "set DIGEST_WEBHOOK_URL first",
     digest_failed: "the webhook did not accept the digest. Check DIGEST_WEBHOOK_URL",
   },
-  everyone: "Everyone",
   banned: "Disabled",
   invited: "Invited · link expires {date}",
   inviteExpired: "Invite expired",
@@ -137,7 +140,6 @@ const COPY = {
   routed: "Routing",
   tokens: "{input} in · {output} out tokens",
   seconds: "{s}s",
-  sql: "SQL",
   tool: { getDiveState: "Read the Dive state", listTables: "Listed tables", describeTable: "Described a table", runQuery: "Ran a query" },
   exportJson: "Export JSON",
   needsAttention: "Needs attention",
@@ -148,7 +150,6 @@ const COPY = {
   askedFrom: "Groups: {groups}",
   askedWith: "Dive state: {state}",
   topicLabel: "Topic: {topic}",
-  feedbackReasons: { wrong_numbers: "Wrong numbers", misunderstood: "Misunderstood the question", missing_data: "Data is missing", too_slow: "Too slow", other: "Something else" },
   topics: "Topics",
   topicsHint: "Questions grouped by subject. Grouping uses the AI model on questions that have no topic yet.",
   groupTopics: "Group into topics",
@@ -176,7 +177,6 @@ const COPY = {
   periods: [[7, "Last 7 days"], [30, "Last 30 days"], [90, "Last 90 days"], [365, "Last 12 months"]],
   period: "Period",
   allGroups: "All groups",
-  noGroup: "No group",
   noModel: "No answer",
   exportQuestions: "Export CSV",
   noQuestions: "No questions in this period.",
@@ -280,27 +280,15 @@ const COPY = {
   chatOn: "AI chat on",
   chatOff: "no AI chat",
 };
-const fill = (template, values) => String(template).replace(/\{(\w+)\}/g, (_, key) => String(values[key] ?? ""));
-const plural = ([one, many], n) => fill(n === 1 ? one : many, { n });
 const dateTime = value => (value ? new Date(value).toLocaleString() : "");
 const select = "h-9 rounded-md border border-input bg-background px-2 text-sm";
 
 // A server error code in words, for "That did not work: …".
 const reasonFor = (error, values = {}) => fill(COPY.reasons[error?.message] || error?.message || "", values);
-const downloadText = (text, name, type) => {
-  const url = URL.createObjectURL(new Blob([text], { type }));
-  Object.assign(document.createElement("a"), { href: url, download: name }).click();
-  URL.revokeObjectURL(url);
-};
+const downloadText = (text, name, type) => downloadBlob(new Blob([text], { type }), name);
 // Cells that a spreadsheet would run as a formula (questions are typed by anyone) get a leading quote.
 const csvCell = value => { const raw = String(value ?? ""); const text = /^[=+\-@\t\r]/.test(raw) ? `'${raw}` : raw; return /[",\n\r]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text; };
 
-async function api(url, options = {}) {
-  const response = await fetch(url, { credentials: "same-origin", cache: "no-store", ...options, headers: { Accept: "application/json", ...(options.body ? { "Content-Type": "application/json" } : {}), ...options.headers } });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw Object.assign(new Error(data?.error || `HTTP ${response.status}`), { data });
-  return data;
-}
 const unwrap = async promise => {
   const { data, error } = await promise;
   if (error) throw new Error(error.message || error.statusText || "request failed");
@@ -425,7 +413,7 @@ function AddPeople({ dives, groups, scope, maxImport = 200, onCreated }) {
     if (reason) return explain();
     const people = form.mode === "list" ? parseList(form.list)
       : [{ username: form.username.trim().toLowerCase(), name: form.name.trim(), email: form.email.trim(), ...(form.delivery === "password" ? { password: form.password } : {}), ...(admin && form.motherduckUser.trim() ? { motherduckUser: form.motherduckUser.trim() } : {}) }];
-    if (!people.length || people.length > maxImport || (form.mode === "one" && form.delivery === "password" && form.password.length < 12)) {
+    if (!people.length || people.length > maxImport || (form.mode === "one" && form.delivery === "password" && form.password.length < MIN_PASSWORD_LENGTH)) {
       const reason = form.mode === "list" ? (people.length ? fill(COPY.listTooLong, { max: maxImport, n: people.length }) : COPY.listEmpty) : COPY.errors.invalid_password;
       setState({ busy: false, message: fill(COPY.failed, { reason }), results: null });
       return;
@@ -588,10 +576,10 @@ function UserRow({ user, dives, groups, grants, scope, self, onChanged }) {
       {!canAct && !self && <p className="text-xs text-muted-foreground">{COPY.outOfReach}</p>}
       <SetupLink link={link} />
       {mode === "password" && (
-        <form className="flex flex-wrap items-center gap-2" onSubmit={event => { event.preventDefault(); if (reason) explain(); else if (password.length >= 12) run(() => unwrap(authClient.admin.setUserPassword({ userId: user.id, newPassword: password })), fill(COPY.passwordSaved, { name })); }}>
+        <form className="flex flex-wrap items-center gap-2" onSubmit={event => { event.preventDefault(); if (reason) explain(); else if (password.length >= MIN_PASSWORD_LENGTH) run(() => unwrap(authClient.admin.setUserPassword({ userId: user.id, newPassword: password })), fill(COPY.passwordSaved, { name })); }}>
           <Input className="max-w-xs" aria-label={label(COPY.password)} value={password} onChange={e => setPassword(e.target.value)} autoComplete="new-password" spellCheck={false} placeholder={COPY.password} />
           <Button type="button" variant="outline" size="sm" onClick={() => setPassword(randomPassword())}>{COPY.generate}</Button>
-          <WriteButton type="submit" size="sm" disabled={state.busy || password.length < 12}>{COPY.save}</WriteButton>
+          <WriteButton type="submit" size="sm" disabled={state.busy || password.length < MIN_PASSWORD_LENGTH}>{COPY.save}</WriteButton>
           <Button type="button" variant="ghost" size="sm" onClick={() => setMode(null)}>{COPY.cancel}</Button>
         </form>
       )}
@@ -673,9 +661,9 @@ function ResourceEditor({ dives, value, onChange }) {
   );
 }
 
-function GroupForm({ dives, group, mdAutomatic, onSaved, onCancel }) {
+function GroupForm({ dives, group, mdAutomatic, notice = "", onSaved, onCancel }) {
   const [form, setForm] = React.useState(() => ({ name: group?.name || "", description: group?.description || "", access: group ? { dives: group.dives, chat: group.chat } : { dives: [], chat: true }, serviceAccount: group?.serviceAccount || "", resources: group?.resources || {}, createAccount: true, cap: group?.monthlyTokenCap ? String(group.monthlyTokenCap) : "" }));
-  const [state, setState] = React.useState({ busy: false, message: "", tone: "error" });
+  const [state, setState] = React.useState({ busy: false, message: notice, tone: "error" });
   const { reason, explain } = React.useContext(ReadOnly);
   const set = (key, value) => setForm(current => ({ ...current, [key]: value }));
   const granted = form.access.dives === "*" ? dives : dives.filter(dive => form.access.dives.includes(dive.key));
@@ -696,7 +684,14 @@ function GroupForm({ dives, group, mdAutomatic, onSaved, onCancel }) {
     } catch (error) { setState({ busy: false, message: fill(COPY.failed, { reason: reasonFor(error) }), tone: "error" }); return; }
     if (creating) {
       try { await api(`/api/admin/groups/${encodeURIComponent(id)}/service-account`, { method: "POST" }); }
-      catch (error) { setState({ busy: false, message: fill(COPY.failed, { reason: error.data?.detail || reasonFor(error) }), tone: "error" }); onSaved({ keepOpen: true }); return; }
+      catch (error) {
+        const failure = fill(COPY.failed, { reason: error.data?.detail || reasonFor(error) });
+        setState({ busy: false, message: failure, tone: "error" });
+        // The group exists now, so the form reopens as that group's: saving again updates it
+        // instead of creating a second one.
+        onSaved({ keepOpen: true, id, failure });
+        return;
+      }
     }
     setState({ busy: false, message: "", tone: "error" });
     onSaved();
@@ -704,7 +699,7 @@ function GroupForm({ dives, group, mdAutomatic, onSaved, onCancel }) {
   const createAccount = async () => {
     if (reason) return explain();
     setState({ busy: true, message: "", tone: "muted" });
-    try { await api(`/api/admin/groups/${encodeURIComponent(group.id)}/service-account`, { method: "POST" }); setState({ busy: false, message: COPY.serviceAccountCreated, tone: "muted" }); onSaved({ keepOpen: true }); }
+    try { await api(`/api/admin/groups/${encodeURIComponent(group.id)}/service-account`, { method: "POST" }); setState({ busy: false, message: COPY.serviceAccountCreated, tone: "muted" }); onSaved({ keepOpen: true, id: group.id }); }
     catch (error) { setState({ busy: false, message: fill(COPY.failed, { reason: error.data?.detail || reasonFor(error) }), tone: "error" }); }
   };
   return (
@@ -792,8 +787,13 @@ function GroupsTab({ data, mdAutomatic, reload }) {
   const [editing, setEditing] = React.useState(null);
   const [confirming, setConfirming] = React.useState(null);
   const [message, setMessage] = React.useState("");
+  // A failure to show in the form that opens next: after a new group is created but its
+  // service account is not, the form reopens as that group's.
+  const [notice, setNotice] = React.useState("");
   const { reason, explain } = React.useContext(ReadOnly);
-  const saved = ({ keepOpen = false } = {}) => { if (!keepOpen) setEditing(null); reload(); };
+  const edit = id => { setNotice(""); setEditing(id); };
+  const saved = ({ keepOpen = false, id = null, failure = "" } = {}) => { setNotice(failure); setEditing(keepOpen ? id : null); reload(); };
+  const cancelDelete = id => { setConfirming(null); document.getElementById(`delete-group-${id}`)?.focus(); };
   const remove = async id => {
     if (reason) return explain();
     try { await api(`/api/admin/groups/${encodeURIComponent(id)}`, { method: "DELETE" }); setConfirming(null); setMessage(""); reload(); }
@@ -804,9 +804,9 @@ function GroupsTab({ data, mdAutomatic, reload }) {
       <Card>
         <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-2">
           <div className="grid max-w-3xl gap-1.5"><CardTitle role="heading" aria-level={2}>{COPY.groups}</CardTitle><CardDescription>{COPY.groupsBody}</CardDescription></div>
-          {editing !== "new" && <Button size="sm" onClick={() => setEditing("new")}><Plus data-icon="inline-start" aria-hidden="true" />{COPY.newGroup}</Button>}
+          {editing !== "new" && <Button size="sm" onClick={() => edit("new")}><Plus data-icon="inline-start" aria-hidden="true" />{COPY.newGroup}</Button>}
         </CardHeader>
-        {editing === "new" && <CardContent><GroupForm dives={data.dives} mdAutomatic={mdAutomatic} onSaved={saved} onCancel={() => setEditing(null)} /></CardContent>}
+        {editing === "new" && <CardContent><GroupForm dives={data.dives} mdAutomatic={mdAutomatic} onSaved={saved} onCancel={() => edit(null)} /></CardContent>}
       </Card>
       <Notice message={message} tone="error" />
       {!data.groups.length && <p className="text-sm text-muted-foreground">{COPY.noGroups}</p>}
@@ -825,19 +825,19 @@ function GroupsTab({ data, mdAutomatic, reload }) {
               )}
             </div>
             <span className="flex shrink-0 flex-wrap gap-1">
-              <Button size="sm" variant="ghost" aria-expanded={editing === group.id} aria-label={`${COPY.editGroup}: ${group.name}`} onClick={() => setEditing(editing === group.id ? null : group.id)}><Pencil data-icon="inline-start" aria-hidden="true" />{COPY.editGroup}</Button>
-              {confirming !== group.id && <WriteButton size="sm" variant="ghost" aria-label={`${COPY.deleteGroup}: ${group.name}`} onClick={() => setConfirming(group.id)}><Trash2 data-icon="inline-start" aria-hidden="true" />{COPY.deleteGroup}</WriteButton>}
+              <Button size="sm" variant="ghost" aria-expanded={editing === group.id} aria-label={`${COPY.editGroup}: ${group.name}`} onClick={() => edit(editing === group.id ? null : group.id)}><Pencil data-icon="inline-start" aria-hidden="true" />{COPY.editGroup}</Button>
+              {/* The same button asks once more, so keyboard focus stays on it. */}
+              <WriteButton id={`delete-group-${group.id}`} size="sm" variant={confirming === group.id ? "destructive" : "ghost"} aria-label={`${confirming === group.id ? COPY.confirmDeleteGroup : COPY.deleteGroup}: ${group.name}`} aria-describedby={confirming === group.id ? `delete-group-warning-${group.id}` : undefined} onClick={() => (confirming === group.id ? remove(group.id) : setConfirming(group.id))}><Trash2 data-icon="inline-start" aria-hidden="true" />{confirming === group.id ? COPY.confirmDeleteGroup : COPY.deleteGroup}</WriteButton>
             </span>
             {confirming === group.id && (
               <div role="alert" className="flex w-full flex-wrap items-center gap-2 rounded-md border border-destructive/40 p-2 text-sm">
-                <span className="mr-auto">{fill(COPY.deleteGroupWarning, { name: group.name, members: plural(COPY.memberCount, group.memberCount ?? 0) })}</span>
-                <Button size="sm" variant="destructive" onClick={() => remove(group.id)}><Trash2 data-icon="inline-start" aria-hidden="true" />{COPY.confirmDeleteGroup}</Button>
-                <Button size="sm" variant="ghost" onClick={() => setConfirming(null)}>{COPY.cancel}</Button>
+                <span id={`delete-group-warning-${group.id}`} className="mr-auto">{fill(COPY.deleteGroupWarning, { name: group.name, members: plural(COPY.memberCount, group.memberCount ?? 0) })}</span>
+                <Button size="sm" variant="ghost" onClick={() => cancelDelete(group.id)}>{COPY.cancel}</Button>
               </div>
             )}
           </CardHeader>
           <CardContent className="grid gap-4">
-            {editing === group.id && <GroupForm dives={data.dives} group={group} mdAutomatic={mdAutomatic} onSaved={saved} onCancel={() => setEditing(null)} />}
+            {editing === group.id && <GroupForm dives={data.dives} group={group} mdAutomatic={mdAutomatic} notice={notice} onSaved={saved} onCancel={() => edit(null)} />}
             <GroupMembers group={group} users={data.users} onChanged={reload} />
           </CardContent>
         </Card>
@@ -859,6 +859,7 @@ function AccessSyncTab({ status, reload }) {
     } catch (error) { setState({ busy: false, message: fill(COPY.failed, { reason: reasonFor(error) }), tone: "error" }); }
   };
   if (!status) return <Spinner />;
+  if (status.error) return <Notice message={fill(COPY.failed, { reason: status.error })} tone="error" />;
   return (
     <div className="grid gap-6">
       <Card>
@@ -1004,12 +1005,18 @@ function QuestionsTab({ dives, onOpen }) {
   const { reason, explain } = React.useContext(ReadOnly);
   const diveTitle = key => dives.find(dive => dive.key === key)?.title || key;
   const params = React.useMemo(() => new URLSearchParams(Object.entries(filters).filter(([, value]) => value)), [filters]);
+  // Changing a filter while a slower answer is on its way drops that answer.
+  const request = useLatestRequest();
   const load = React.useCallback(async () => {
+    const signal = request.start();
     setState(current => ({ ...current, loading: true, error: "" }));
-    try { setData(await api(`/api/admin/insights?${params}`)); setState(current => ({ ...current, loading: false })); }
-    catch (error) { setState(current => ({ ...current, loading: false, error: reasonFor(error) })); }
-  }, [params]);
-  React.useEffect(() => { load(); }, [load]);
+    try {
+      const next = await api(`/api/admin/insights?${params}`, { signal });
+      if (signal.aborted) return;
+      setData(next); setState(current => ({ ...current, loading: false }));
+    } catch (error) { if (!signal.aborted) setState(current => ({ ...current, loading: false, error: reasonFor(error) })); }
+  }, [params, request]);
+  React.useEffect(() => { load(); return request.abort; }, [load, request]);
   const exportCsv = async () => {
     setState(current => ({ ...current, exporting: true, error: "" }));
     try {
@@ -1091,7 +1098,7 @@ function QuestionsTab({ dives, onOpen }) {
                         <span className="line-clamp-2 text-sm">{item.question}</span>
                         <span className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
                           {item.status !== "answered" && <Badge variant="destructive">{COPY.statuses[item.status] || item.status}</Badge>}
-                          {item.feedback === -1 && <Badge variant="outline"><ThumbsDown aria-hidden="true" />{item.feedback_reason ? COPY.feedbackReasons[item.feedback_reason] || item.feedback_reason : COPY.notHelpful}</Badge>}
+                          {item.feedback === -1 && <Badge variant="outline"><ThumbsDown aria-hidden="true" />{item.feedback_reason ? FEEDBACK_REASONS[item.feedback_reason] || item.feedback_reason : COPY.notHelpful}</Badge>}
                           {item.user_label} · {diveTitle(item.dive_key)} · {dateTime(item.asked_at)}
                         </span>
                         {item.feedback_note && <span className="text-xs text-muted-foreground">“{item.feedback_note}”</span>}
@@ -1167,16 +1174,20 @@ function ActivityTab() {
   const [filters, setFilters] = React.useState({ q: "", action: "" });
   const [events, setEvents] = React.useState([]);
   const [state, setState] = React.useState({ loading: true, error: "", more: false });
+  // Only the newest request counts, so "Load more" for the old filters never appends to new results.
+  const request = useLatestRequest();
   const load = React.useCallback(async (offset = 0) => {
+    const signal = request.start();
     setState(current => ({ ...current, loading: true, error: "" }));
     const params = new URLSearchParams({ offset: String(offset), ...Object.fromEntries(Object.entries(filters).filter(([, value]) => value)) });
     try {
-      const data = await api(`/api/admin/audit?${params}`);
+      const data = await api(`/api/admin/audit?${params}`, { signal });
+      if (signal.aborted) return;
       setEvents(current => (offset ? [...current, ...data.events] : data.events));
       setState({ loading: false, error: "", more: data.events.length === 100 });
-    } catch (error) { setState({ loading: false, error: reasonFor(error), more: false }); }
-  }, [filters]);
-  React.useEffect(() => { const timer = setTimeout(() => load(0), 250); return () => clearTimeout(timer); }, [load]);
+    } catch (error) { if (!signal.aborted) setState({ loading: false, error: reasonFor(error), more: false }); }
+  }, [filters, request]);
+  React.useEffect(() => { const timer = setTimeout(() => load(0), 250); return () => { clearTimeout(timer); request.abort(); }; }, [load, request]);
   const describe = detail => (detail && typeof detail === "object" ? Object.entries(detail).filter(([, value]) => value !== null && value !== undefined && value !== "").map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(", ") || "—" : String(value)}`).join(" · ") : "");
   return (
     <Card>
@@ -1220,12 +1231,7 @@ function ConversationDetail({ id, diveTitle, onDeleted }) {
   }, [id]);
   if (error) return <Notice message={fill(COPY.failed, { reason: error })} tone="error" />;
   if (!conversation) return <Spinner />;
-  const exportJson = () => {
-    const url = URL.createObjectURL(new Blob([JSON.stringify(conversation, null, 2)], { type: "application/json" }));
-    const link = Object.assign(document.createElement("a"), { href: url, download: `conversation-${conversation.id}.json` });
-    link.click();
-    URL.revokeObjectURL(url);
-  };
+  const exportJson = () => downloadText(JSON.stringify(conversation, null, 2), `conversation-${conversation.id}.json`, "application/json");
   const remove = async () => {
     try { await api(`/api/admin/conversations/${encodeURIComponent(id)}`, { method: "DELETE" }); onDeleted(); }
     catch (err) { setError(reasonFor(err)); }
@@ -1236,9 +1242,8 @@ function ConversationDetail({ id, diveTitle, onDeleted }) {
         <div className="mr-auto min-w-0"><h3 className="font-medium">{conversation.title}</h3><p className="text-xs text-muted-foreground">{conversation.user_label} · {diveTitle(conversation.dive_key)} · {dateTime(conversation.created_at)}</p></div>
         <span className="flex shrink-0 gap-2">
           <Button size="sm" variant="outline" onClick={exportJson}><Download data-icon="inline-start" aria-hidden="true" />{COPY.exportJson}</Button>
-          {confirming
-            ? <Button size="sm" variant="destructive" onClick={remove}><Trash2 data-icon="inline-start" aria-hidden="true" />{COPY.confirmRemove}</Button>
-            : <WriteButton size="sm" variant="ghost" onClick={() => setConfirming(true)}><Trash2 data-icon="inline-start" aria-hidden="true" />{COPY.remove}</WriteButton>}
+          {/* The same button asks once more, so keyboard focus stays on it. */}
+          <WriteButton size="sm" variant={confirming ? "destructive" : "ghost"} onClick={confirming ? remove : () => setConfirming(true)}><Trash2 data-icon="inline-start" aria-hidden="true" />{confirming ? COPY.confirmRemove : COPY.remove}</WriteButton>
         </span>
       </div>
       <ol className="grid gap-3">
@@ -1248,12 +1253,12 @@ function ConversationDetail({ id, diveTitle, onDeleted }) {
               {message.role === "user" ? COPY.question : COPY.answer} · {dateTime(message.created_at)}
               {message.status && message.status !== "answered" && <Badge variant="destructive">{COPY.statuses[message.status] || message.status}</Badge>}
               {message.feedback === 1 && <Badge variant="outline"><ThumbsUp aria-hidden="true" />{COPY.helpful}</Badge>}
-              {message.feedback === -1 && <Badge variant="outline"><ThumbsDown aria-hidden="true" />{COPY.notHelpful}{message.feedback_reason ? `: ${COPY.feedbackReasons[message.feedback_reason] || message.feedback_reason}` : ""}</Badge>}
+              {message.feedback === -1 && <Badge variant="outline"><ThumbsDown aria-hidden="true" />{COPY.notHelpful}{message.feedback_reason ? `: ${FEEDBACK_REASONS[message.feedback_reason] || message.feedback_reason}` : ""}</Badge>}
             </p>
             {/* Answers render as the person saw them in the chat; questions stay plain text. */}
             {message.role === "assistant" ? <MessageResponse className="h-auto text-sm">{message.content}</MessageResponse> : <p className="whitespace-pre-wrap text-sm">{message.content}</p>}
             {message.role === "assistant" && message.feedback_note && <p className="mt-1 text-xs text-muted-foreground">“{message.feedback_note}”</p>}
-            {message.role === "user" && message.topic && <p className="mt-1 text-xs text-muted-foreground">{fill(COPY.topicLabel, { topic: message.topic })}{message.data_gap ? ` · ${COPY.feedbackReasons.missing_data}` : ""}</p>}
+            {message.role === "user" && message.topic && <p className="mt-1 text-xs text-muted-foreground">{fill(COPY.topicLabel, { topic: message.topic })}{message.data_gap ? ` · ${FEEDBACK_REASONS.missing_data}` : ""}</p>}
             {message.role === "user" && message.group_names?.length > 0 && <p className="mt-1 text-xs text-muted-foreground">{fill(COPY.askedFrom, { groups: message.group_names.join(", ") })}</p>}
             {message.role === "user" && message.dive_state && Object.keys(message.dive_state).length > 0 && <p className="mt-1 break-words text-xs text-muted-foreground">{fill(COPY.askedWith, { state: Object.entries(message.dive_state).map(([key, value]) => `${key}: ${typeof value === "object" ? JSON.stringify(value) : String(value)}`).join(" · ") })}</p>}
             {message.role === "assistant" && (
@@ -1288,16 +1293,20 @@ function ConversationsTab({ users, dives, initial }) {
     // On narrow screens the detail sits below the list, so bring it into view.
     if (window.matchMedia("(max-width: 1023px)").matches) requestAnimationFrame(() => detailRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
   };
+  // Only the newest request counts, so "Load more" for the old filters never appends to new results.
+  const request = useLatestRequest();
   const load = React.useCallback(async (offset = 0) => {
+    const signal = request.start();
     setState(current => ({ ...current, loading: true, error: "" }));
     const params = new URLSearchParams({ limit: "50", offset: String(offset), ...Object.fromEntries(Object.entries(filters).filter(([, value]) => value)) });
     try {
-      const { conversations } = await api(`/api/admin/conversations?${params}`);
+      const { conversations } = await api(`/api/admin/conversations?${params}`, { signal });
+      if (signal.aborted) return;
       setItems(current => (offset ? [...current, ...conversations] : conversations));
       setState({ loading: false, error: "", more: conversations.length === 50 });
-    } catch (error) { setState({ loading: false, error: reasonFor(error), more: false }); }
-  }, [filters]);
-  React.useEffect(() => { const timer = setTimeout(() => load(0), 250); return () => clearTimeout(timer); }, [load]);
+    } catch (error) { if (!signal.aborted) setState({ loading: false, error: reasonFor(error), more: false }); }
+  }, [filters, request]);
+  React.useEffect(() => { const timer = setTimeout(() => load(0), 250); return () => { clearTimeout(timer); request.abort(); }; }, [load, request]);
   return (
     <div className="grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
       <Card className="min-w-0">
@@ -1360,6 +1369,7 @@ export default function AdminApp() {
   const [data, setData] = React.useState({ users: [], groups: [], dives: [], scope: "admin", me: null });
   const [sync, setSync] = React.useState(null);
   const [loading, setLoading] = React.useState(false);
+  const [loadError, setLoadError] = React.useState("");
   const [toast, setToast] = React.useState("");
   const [openConversation, setOpenConversation] = React.useState(null);
   const toastTimer = React.useRef();
@@ -1373,22 +1383,26 @@ export default function AdminApp() {
   }), [status.demo]);
 
   React.useEffect(() => {
-    try { document.documentElement.classList.toggle("dark", window.localStorage.getItem("dive_app_theme") === "\"dark\"" || window.localStorage.getItem("dive_app_theme") === "dark"); } catch { /* theme is optional */ }
+    try { document.documentElement.classList.toggle("dark", window.localStorage.getItem("dive_app_theme") === "dark"); } catch { /* theme is optional */ }
     document.title = COPY.title;
   }, []);
 
+  // A failed sync status shows as an error on its tab instead of a spinner that never ends.
   const loadSync = React.useCallback(async () => {
-    try { setSync(await api("/api/admin/access-sync")); } catch { setSync(null); }
+    try { setSync(await api("/api/admin/access-sync")); } catch (error) { setSync({ error: reasonFor(error), grants: [] }); }
   }, []);
+  const fetchPeople = React.useCallback(async () => {
+    const people = await api("/api/admin/people");
+    setData(people);
+    if (people.scope === "admin") await loadSync();
+  }, [loadSync]);
+  // Reloads after a change. The previous list stays on screen, with the failure above it.
   const load = React.useCallback(async () => {
     setLoading(true);
-    try {
-      const people = await api("/api/admin/people");
-      setData(people);
-      if (people.scope === "admin") await loadSync();
-      return people;
-    } finally { setLoading(false); }
-  }, [loadSync]);
+    try { await fetchPeople(); setLoadError(""); }
+    catch (error) { setLoadError(fill(COPY.failed, { reason: reasonFor(error) })); }
+    finally { setLoading(false); }
+  }, [fetchPeople]);
 
   React.useEffect(() => {
     (async () => {
@@ -1397,11 +1411,11 @@ export default function AdminApp() {
         if (auth.mode !== "accounts") return setStatus({ state: "off" });
         if (!auth.authenticated) return setStatus({ state: "signin" });
         if (!auth.user?.canManage) return setStatus({ state: "forbidden" });
-        await load();
+        await fetchPeople();
         setStatus({ state: "ready", demo: Boolean(auth.publicDemo) });
       } catch (error) { setStatus({ state: "error", message: reasonFor(error) }); }
     })();
-  }, [load]);
+  }, [fetchPeople]);
 
   const admin = data.scope === "admin";
   const tabs = [["users", COPY.users, Users], ...(admin ? [["groups", COPY.groups, UsersRound], ["motherduck", COPY.motherduck, Database], ["activity", COPY.activity, History], ["questions", COPY.questions, ChartColumn], ["conversations", COPY.conversations, MessageSquare], ["models", COPY.models, Bot]] : [["questions", COPY.questions, ChartColumn]])];
@@ -1438,6 +1452,7 @@ export default function AdminApp() {
             <CardContent><ul className="grid list-disc gap-1 pl-5 text-sm text-muted-foreground">{COPY.demoTry.map(item => <li key={item}>{item}</li>)}</ul></CardContent>
           </Card>
         )}
+        {status.state === "ready" && <Notice message={loadError} tone="error" />}
         {message && <Card><CardHeader><CardTitle role="heading" aria-level={2}>{message[0]}</CardTitle><CardDescription>{message[1]}</CardDescription></CardHeader>{status.state === "signin" && <CardContent><Button nativeButton={false} render={<a href="/" />}>{COPY.back}</Button></CardContent>}</Card>}
         {status.state === "ready" && shown === "users" && <UsersTab data={data} grants={sync?.grants || []} reload={load} loading={loading} />}
         {status.state === "ready" && admin && shown === "groups" && <GroupsTab data={data} mdAutomatic={data.mdAutomatic ?? sync?.mode === "automatic"} reload={load} />}

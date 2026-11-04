@@ -6,6 +6,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Spinner } from "@/components/ui/spinner";
+import { api } from "@/lib/api.mjs";
+import { fill } from "@/lib/text.mjs";
 
 // The admin Models tab: which provider and model powers each chat tier. Only non-secret values
 // are entered here. Keys stay in the deployment's environment and this page only shows whether
@@ -106,15 +108,7 @@ const COPY = {
   },
 };
 const KEYS = ["luna", "sol", "astra"];
-const fill = (template, values) => String(template).replace(/\{(\w+)\}/g, (_, key) => String(values[key] ?? ""));
 const select = "h-9 w-full rounded-md border border-input bg-background px-2 text-sm text-foreground";
-
-async function api(url, options = {}) {
-  const response = await fetch(url, { credentials: "same-origin", cache: "no-store", ...options, headers: { Accept: "application/json", ...(options.body ? { "Content-Type": "application/json" } : {}), ...options.headers } });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw Object.assign(new Error(data?.error || `HTTP ${response.status}`), { data });
-  return data;
-}
 const tierName = path => { const key = String(path || "").split(".")[1] || String(path || "").split(".")[0]; return COPY.tiers[key]?.[0]; };
 const reasonFor = error => {
   const reason = COPY.reasons[error?.message] || error?.message || "";
@@ -195,7 +189,7 @@ function TierEditor({ id, entry, overview, onChange, enabled, onEnabled, onTest,
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex flex-wrap items-baseline gap-x-2">{name}<span className="text-sm font-normal text-muted-foreground">{hint}</span></CardTitle>
+        <CardTitle role="heading" aria-level={3} className="flex flex-wrap items-baseline gap-x-2">{name}<span className="text-sm font-normal text-muted-foreground">{hint}</span></CardTitle>
         <CardDescription className="break-words">
           {fill(COPY.current, { provider: label, model: effective.model || COPY.noModel, source: COPY.sources[effective.source] ?? effective.source })}
           {!effective.configured && effective.missing?.length ? <span className="block text-destructive">{fill(COPY.missingNow, { names: effective.missing.join("; ") })}</span> : null}
@@ -203,8 +197,8 @@ function TierEditor({ id, entry, overview, onChange, enabled, onEnabled, onTest,
       </CardHeader>
       <CardContent className="grid gap-4">
         <div className="grid gap-2 text-sm">
-          <label className="flex items-start gap-2"><input type="checkbox" className="mt-0.5" checked={entry.inherit} onChange={() => (entry.inherit ? onChange({ inherit: false, provider: effective.provider, model: effective.model, options: { ...effective.options } }) : onChange({ ...entry, inherit: true }))} />{id === "utility" ? COPY.useEnvUtility : COPY.useEnv}</label>
-          {id !== "utility" && <label className="flex items-start gap-2"><input type="checkbox" className="mt-0.5" checked={enabled} onChange={onEnabled} />{COPY.shown}</label>}
+          <label className="flex items-start gap-2"><input type="checkbox" className="mt-0.5" checked={entry.inherit} onChange={() => (entry.inherit ? onChange({ inherit: false, provider: effective.provider, model: effective.model, options: { ...effective.options } }) : onChange({ ...entry, inherit: true }))} />{id === "utility" ? COPY.useEnvUtility : COPY.useEnv}<span className="sr-only">: {name}</span></label>
+          {id !== "utility" && <label className="flex items-start gap-2"><input type="checkbox" className="mt-0.5" checked={enabled} onChange={onEnabled} />{COPY.shown}<span className="sr-only">: {name}</span></label>}
           {id !== "utility" && enabled && !overview.enabled.includes(id) && <p className="text-xs text-muted-foreground">{COPY.hidden}</p>}
         </div>
         {!entry.inherit && (
@@ -236,7 +230,7 @@ function TierEditor({ id, entry, overview, onChange, enabled, onEnabled, onTest,
           </fieldset>
         )}
         <div className="grid gap-2">
-          <div><Button type="button" size="sm" variant="outline" aria-disabled={demo || undefined} title={demo ? COPY.demo : undefined} disabled={result?.pending} onClick={onTest}><FlaskConical data-icon="inline-start" aria-hidden="true" />{result?.pending ? COPY.testing : COPY.test}</Button></div>
+          <div><Button type="button" size="sm" variant="outline" aria-label={`${result?.pending ? COPY.testing : COPY.test} ${name}`} aria-disabled={demo || result?.pending || undefined} title={demo ? COPY.demo : undefined} onClick={result?.pending ? undefined : onTest}><FlaskConical data-icon="inline-start" aria-hidden="true" />{result?.pending ? COPY.testing : COPY.test}</Button></div>
           <TestResult result={result} />
         </div>
       </CardContent>
@@ -255,7 +249,7 @@ function QuickSetup({ providers, onFill }) {
   const apply = () => onFill(provider.id, single ? { luna: model, sol: model, astra: model } : preset.models, single && baseURL ? { baseURL } : {});
   return (
     <Card>
-      <CardHeader><CardTitle>{COPY.quickTitle}</CardTitle><CardDescription>{COPY.quickBody}</CardDescription></CardHeader>
+      <CardHeader><CardTitle role="heading" aria-level={3}>{COPY.quickTitle}</CardTitle><CardDescription>{COPY.quickBody}</CardDescription></CardHeader>
       <CardContent className="grid gap-3">
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="grid gap-1.5">
@@ -299,7 +293,11 @@ export default function ModelsTab({ demo = false }) {
     setOverview(data); setDraft(next); setBaseline(JSON.stringify(toSettings(data.providers, next)));
   }, []);
   React.useEffect(() => {
-    api("/api/admin/models").then(adopt).catch(error => setState({ busy: false, message: fill(COPY.failed, { reason: reasonFor(error) }), tone: "error" }));
+    const controller = new AbortController();
+    api("/api/admin/models", { signal: controller.signal })
+      .then(adopt)
+      .catch(error => { if (!controller.signal.aborted) setState({ busy: false, message: fill(COPY.failed, { reason: reasonFor(error) }), tone: "error" }); });
+    return () => controller.abort();
   }, [adopt]);
   if (!overview || !draft) return state.message ? <p role="alert" className="text-sm text-destructive">{state.message}</p> : <Spinner />;
 
@@ -337,7 +335,7 @@ export default function ModelsTab({ demo = false }) {
     <div className="grid min-w-0 gap-6">
       <Card>
         <CardHeader>
-          <CardTitle>{COPY.title}</CardTitle>
+          <CardTitle role="heading" aria-level={2}>{COPY.title}</CardTitle>
           <CardDescription className="grid max-w-3xl gap-1.5"><span>{COPY.body}</span><span>{COPY.docs}</span></CardDescription>
         </CardHeader>
         <CardContent className="grid gap-1 text-sm text-muted-foreground">
