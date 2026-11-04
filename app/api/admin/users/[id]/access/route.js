@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { NO_STORE, failure, requireAdmin } from '../../../../../../lib/admin-api.mjs';
+import { NO_STORE, failure, requireAdmin, badBody } from '../../../../../../lib/admin-api.mjs';
+import { readJsonBody } from '../../../../../../lib/request-body.mjs';
 import { appQuery } from '../../../../../../lib/app-db.mjs';
 import { listDives } from '../../../../../../lib/dives.mjs';
 import { formatDiveAccess, MOTHERDUCK_USER } from '../../../../../../lib/groups.mjs';
@@ -23,7 +24,7 @@ export async function PATCH(request, { params }) {
   const { response, viewer } = await requireAdmin(request, { write: true });
   if (response) return response;
   let body;
-  try { body = accessSchema.parse(await request.json()); } catch { return failure('invalid_access', 400); }
+  try { body = accessSchema.parse(await readJsonBody(request, 16384)); } catch (error) { return badBody(error, 'invalid_access'); }
   const known = new Set(listDives().map(dive => dive.key));
   const dives = body.dives === '*' ? '*' : body.dives.filter(key => known.has(key));
   const id = (await params).id.slice(0, 64);

@@ -627,7 +627,7 @@ function UsersTab({ data, grants, reload, loading }) {
         </CardHeader>
         <CardContent className="grid gap-2">
           {data.truncated && <Notice message={fill(COPY.truncated, { max: data.users.length })} />}
-          {users.length ? <ul className="grid">{users.map(user => <UserRow key={`${user.id}:${user.updatedAt}:${user.banned}:${(user.groups || []).length}:${user.inviteExpiresAt}`} user={user} dives={data.dives} groups={data.groups} grants={grants} scope={data.scope} self={user.id === data.me} onChanged={reload} />)}</ul> : <p className="text-sm text-muted-foreground">{COPY.noUsers}</p>}
+          {users.length ? <ul className="grid">{users.map(user => <UserRow key={`${user.id}:${user.updatedAt}:${user.banned}:${(user.groups || []).length}`} user={user} dives={data.dives} groups={data.groups} grants={grants} scope={data.scope} self={user.id === data.me} onChanged={reload} />)}</ul> : <p className="text-sm text-muted-foreground">{COPY.noUsers}</p>}
         </CardContent>
       </Card>
     </div>
@@ -810,7 +810,7 @@ function GroupsTab({ data, mdAutomatic, reload }) {
       <Notice message={message} tone="error" />
       {!data.groups.length && <p className="text-sm text-muted-foreground">{COPY.noGroups}</p>}
       {data.groups.map(group => (
-        <Card key={`${group.id}:${group.memberCount}`}>
+        <Card key={group.id}>
           <CardHeader className="flex flex-row flex-wrap items-start gap-2">
             <div className="mr-auto grid min-w-0 gap-1">
               <CardTitle role="heading" aria-level={2} className="flex flex-wrap items-center gap-2">{group.name}{group.serviceAccount && <Badge variant="outline"><Database aria-hidden="true" />{COPY.dataGroup}</Badge>}</CardTitle>
@@ -1112,7 +1112,7 @@ function QuestionsTab({ dives, onOpen }) {
               <CardContent>
                 <ol className="grid">
                   {data.frequent.map(item => (
-                    <li key={item.conversation_id + item.question}>
+                    <li key={item.question + item.last_asked_at}>
                       <QuestionItem onOpen={onOpen} conversationId={item.conversation_id}>
                         <span className="line-clamp-2 text-sm">{item.question}</span>
                         <span className="text-xs text-muted-foreground">{fill(COPY.askedBy, { questions: plural(COPY.questionCount, item.questions), people: plural(COPY.people, item.askers), when: dateTime(item.last_asked_at) })}{item.unsuccessful + item.negative ? ` · ${item.unsuccessful + item.negative} ${COPY.needsAttention.toLowerCase()}` : ""}</span>
@@ -1421,13 +1421,15 @@ export default function AdminApp() {
   const shown = tabs.some(([key]) => key === tab) ? tab : "users";
   React.useEffect(() => { if (status.state === "ready" && shown === "motherduck") loadSync(); }, [status.state, shown, loadSync]);
   // Arrow keys move between tabs, as in any tab list.
+  // A conversation opened from Questions is shown once; choosing a tab by hand starts from the list.
+  const chooseTab = key => { setOpenConversation(null); setTab(key); };
   const onTabKey = event => {
     const index = tabs.findIndex(([key]) => key === shown);
     const next = { ArrowRight: index + 1, ArrowLeft: index - 1, Home: 0, End: tabs.length - 1 }[event.key];
     if (next === undefined) return;
     event.preventDefault();
     const key = tabs[(next + tabs.length) % tabs.length][0];
-    setTab(key);
+    chooseTab(key);
     document.getElementById(`tab-${key}`)?.focus();
   };
   const message = { off: [COPY.accountsOff, COPY.accountsOffBody], signin: [COPY.title, COPY.signIn], forbidden: [COPY.title, COPY.notAdmin], error: [COPY.title, fill(COPY.failed, { reason: status.message })] }[status.state];
@@ -1438,7 +1440,7 @@ export default function AdminApp() {
         <h1 className="text-base font-semibold">{COPY.title}</h1>
         {status.state === "ready" && (
           <div role="tablist" aria-label={COPY.title} className="flex w-full flex-wrap gap-1 sm:ml-auto sm:w-auto" onKeyDown={onTabKey}>
-            {tabs.map(([key, label, Icon]) => <Button key={key} id={`tab-${key}`} role="tab" aria-selected={shown === key} aria-controls="admin-panel" tabIndex={shown === key ? 0 : -1} size="sm" variant={shown === key ? "secondary" : "ghost"} onClick={() => setTab(key)}><Icon data-icon="inline-start" aria-hidden="true" />{label}</Button>)}
+            {tabs.map(([key, label, Icon]) => <Button key={key} id={`tab-${key}`} role="tab" aria-selected={shown === key} aria-controls="admin-panel" tabIndex={shown === key ? 0 : -1} size="sm" variant={shown === key ? "secondary" : "ghost"} onClick={() => chooseTab(key)}><Icon data-icon="inline-start" aria-hidden="true" />{label}</Button>)}
           </div>
         )}
       </header>

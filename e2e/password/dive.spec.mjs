@@ -50,3 +50,36 @@ test('when MotherDuck cannot open the Dive, the app retries and then offers Try 
   await expect(dive(page).getByText(/Session e2e-session-/)).toBeVisible();
   await expect(page.getByText('Dive unavailable')).toHaveCount(0);
 });
+
+test('an unknown stored theme falls back to light instead of breaking the Dive', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('dive_app_theme', 'purple'));
+  await signIn(page);
+  await expect(dive(page).getByText(/Session e2e-session-/)).toBeVisible();
+  expect((await embedRequests()).at(-1).body.initial_state.app_theme).toBe('light');
+});
+
+test('a stored dark theme is applied before the app loads, by a script the security policy allows', async ({ page }) => {
+  const blocked = [];
+  page.on('console', message => { if (/Content Security Policy/i.test(message.text())) blocked.push(message.text()); });
+  await page.addInitScript(() => {
+    localStorage.setItem('dive_app_theme', 'dark');
+    // Records the class when the head's theme script has run, before the app's scripts.
+    new MutationObserver((_, observer) => {
+      if (document.body) { window.__darkBeforeBody = document.documentElement.classList.contains('dark'); observer.disconnect(); }
+    }).observe(document, { childList: true, subtree: true });
+  });
+  await page.goto('/');
+  expect(await page.evaluate(() => window.__darkBeforeBody)).toBe(true);
+  expect(blocked).toEqual([]);
+});
+
+test('a collapsed sidebar cannot be reached with the keyboard', async ({ page }) => {
+  await signIn(page);
+  const explorer = page.getByRole('button', { name: /^Explorer/ });
+  const focusable = () => explorer.evaluate(button => { button.focus(); return document.activeElement === button; });
+  expect(await focusable()).toBe(true);
+  await page.getByRole('button', { name: 'Collapse sidebar' }).click();
+  await expect.poll(focusable).toBe(false);
+  await page.getByRole('button', { name: 'Expand sidebar' }).click();
+  await expect.poll(focusable).toBe(true);
+});

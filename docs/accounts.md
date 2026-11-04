@@ -159,6 +159,8 @@ A manager of a group can open **Admin** and see only the people in the groups th
 - add people to their group (by list or one at a time), who get the group's access and nothing more;
 - create setup links, and disable, re-enable or remove people from their group.
 
+A manager acts only on people who belong to nothing but the groups they manage and have no access of their own. Someone an administrator also gave Dives or chat directly, or who is in another group, stays with the administrators, so a setup link can never hand a manager more access than their group has.
+
 They can also open **Questions**, limited to questions asked as a member of the groups they manage, with the CSV export (without conversation ids). They cannot grant Dives, change roles, see administrators, edit groups, open conversations, group questions into topics or send the digest. Managers suit customer administrators and team leads.
 
 A manager acts only on people who belong to nothing but the groups that manager runs. People who are also in another group, who manage a group themselves, or who are administrators are listed but stay with the administrators. In addition:
@@ -198,7 +200,7 @@ In accounts mode conversations are saved by default, and the chat panel tells pe
 
 | Setting | Effect |
 | --- | --- |
-| `CHAT_HISTORY=off` | Nothing is saved, and the notice disappears. |
+| `CHAT_HISTORY=off` | Nothing new is saved, and the notice disappears. Messages saved earlier still expire under `CHAT_RETENTION_DAYS`. |
 | `CHAT_RETENTION_DAYS=90` | Messages older than 90 days are deleted by the daily scheduled run (`/api/cron/daily`, which needs `CRON_SECRET`). Their tokens then no longer count toward a group's monthly allowance, so keep it at 31 days or more when you use allowances. |
 
 Saved answers keep the SQL and row counts, but **never the result rows**, so the app database does not become a copy of your data. Each question also keeps the asker's group names and the Dive's state (its filters and selections, up to 8 KB). Tell your users how long you keep conversations and who can read them.

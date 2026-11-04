@@ -168,7 +168,7 @@ test('people can read and delete only their own conversations', async () => {
     const deleted = await DELETE(request(`/api/chat/conversations/${CONVERSATION}`, { method: 'DELETE', who: 'ann' }), params);
     assert.equal(deleted.status, 200);
     assert.deepEqual(await deleted.json(), { deleted: true });
-    assert.ok(deletes(fake).some(query => query.text === 'DELETE FROM chat_conversation WHERE id = $1' && query.values[0] === CONVERSATION));
+    assert.ok(deletes(fake).some(query => query.text.startsWith('DELETE FROM chat_conversation WHERE id = $1') && query.values[0] === CONVERSATION));
   });
 });
 
@@ -209,6 +209,26 @@ test('removing a person also removes their group memberships and setup links', a
   } finally { fake.restore(); }
 });
 
+test('setting a password signs the person out and cancels their setup links', async () => {
+  const { POST } = await import('../app/api/account/[...all]/route.js');
+  await inAccounts({}, async fake => {
+    const signedOut = [];
+    globalThis.__diveChatAuth.$context = Promise.resolve({ internalAdapter: { deleteUserSessions: async id => { signedOut.push(id); } } });
+    const response = await POST(request('/api/account/admin/set-user-password', { method: 'POST', who: 'admin', body: { userId: 'u-bob', newPassword: 'a-new-password-123' } }));
+    assert.equal(response.status, 200);
+    assert.deepEqual(signedOut, ['u-bob']);
+    assert.ok(fake.queries.some(query => query.text.startsWith('DELETE FROM account_setup WHERE user_id = $1') && query.values[0] === 'u-bob'));
+  });
+});
+
+test('people cannot edit their own profile, so nobody can take another person\'s display name', async () => {
+  const { POST } = await import('../app/api/account/[...all]/route.js');
+  await inAccounts({}, async () => {
+    const response = await POST(request('/api/account/update-user', { method: 'POST', who: 'admin', body: { displayUsername: 'someone-else' } }));
+    assert.equal(response.status, 403);
+  });
+});
+
 test('the content security policy carries a fresh nonce and forbids framing', async () => {
   const { proxy } = await import('../proxy.js');
   const policy = () => {
@@ -243,6 +263,12 @@ test('the daily run deletes messages past CHAT_RETENTION_DAYS before syncing acc
     const purge = fake.queries.find(item => item.text.startsWith('DELETE FROM chat_message WHERE created_at <'));
     assert.ok(purge, 'old messages are deleted');
     assert.ok(Date.now() - purge.values[0].getTime() >= 7 * 86400000 - 1000);
+  });
+  // Messages saved before CHAT_HISTORY was turned off still expire.
+  await inAccounts({ CRON_SECRET: secret, CHAT_RETENTION_DAYS: '7', CHAT_HISTORY: 'off', MOTHERDUCK_ADMIN_TOKEN: undefined }, async fake => {
+    assert.equal((await (await call()).json()).retention, 'purged');
+    assert.ok(fake.queries.some(item => item.text.startsWith('DELETE FROM chat_message WHERE created_at <')));
+    assert.ok(fake.queries.some(item => item.text.startsWith('UPDATE chat_conversation SET title')), 'titles drop purged questions');
   });
   await inAccounts({ CRON_SECRET: secret, CHAT_RETENTION_DAYS: undefined, MOTHERDUCK_ADMIN_TOKEN: undefined }, async fake => {
     assert.equal((await (await call()).json()).retention, 'off');

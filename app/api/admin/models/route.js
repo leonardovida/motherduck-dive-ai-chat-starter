@@ -73,7 +73,8 @@ export async function DELETE(request) {
 
 // Test: one tiny prompt with one tool call, sent from the server, for a saved tier or an unsaved
 // draft from the form. It spends a few tokens, so it is a write: admins, same origin, no demo.
-const testSchema = z.object({ tier: z.enum(['luna', 'sol', 'astra', 'utility']), config: z.unknown().optional() }).strict();
+// inherit: the form says to use the environment for this tier, saved or not.
+const testSchema = z.object({ tier: z.enum(['luna', 'sol', 'astra', 'utility']), config: z.unknown().optional(), inherit: z.boolean().optional() }).strict();
 const tests = new Map();
 export async function POST(request) {
   const { response, viewer } = await requireAdmin(request, { write: true });
@@ -97,7 +98,13 @@ export async function POST(request) {
   if (!model) {
     let stored;
     try { stored = await load(createModelSettingsStore()); } catch { return failure('accounts_unavailable', 503); }
-    const env = withModelSettings(process.env, stored?.settings ?? null);
+    let settings = stored?.settings ?? null;
+    if (settings && body.inherit) {
+      settings = body.tier === 'utility'
+        ? { ...settings, utility: null }
+        : { ...settings, tiers: Object.fromEntries(Object.entries(settings.tiers ?? {}).filter(([key]) => key !== body.tier)) };
+    }
+    const env = withModelSettings(process.env, settings);
     model = body.tier === 'utility' ? utilityModel(env) : tierModel(body.tier, env);
   }
   const result = await testModel(model, process.env);

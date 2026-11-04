@@ -28,6 +28,17 @@ const ADMIN_ACTIONS = {
   '/admin/impersonate-user': ['person.impersonated', false], '/admin/update-user': ['person.updated', true],
 };
 
+// Better Auth only replaces the hash, so the person's other sessions and any unused setup link
+// would still work after an administrator resets a password they believe is compromised.
+async function endAccessAfterPasswordSet(auth, userId) {
+  try {
+    await (await auth.$context).internalAdapter.deleteUserSessions(userId);
+    await appQuery('DELETE FROM account_setup WHERE user_id = $1 AND used_at IS NULL', [userId]);
+  } catch (error) {
+    console.error('password_set_signout_failed', error?.code ?? error?.name);
+  }
+}
+
 // The person is already gone at this point, so a failure here is logged rather than reported.
 async function removeAppRows(userId) {
   try {
@@ -43,6 +54,10 @@ const handle = method => async request => {
   if (!auth) return failure('accounts_not_configured', 404);
   const path = new URL(request.url).pathname.slice(AUTH_BASE_PATH.length);
   if (publicDemo() && !demoAllowsAuthRoute(method, path)) return failure(DEMO_READ_ONLY, 403);
+  // People do not edit their own profile: the app has no screen for it, and a free-text display
+  // name would let anyone appear in the portal under someone else's name. Administrators use
+  // /admin/update-user.
+  if (path === '/update-user') return failure('not_allowed', 403);
   const run = () => toNextJsHandler(auth)[method](request);
   if (method !== 'POST') return run();
   if (SIGN_IN[path]) {
@@ -75,6 +90,7 @@ const handle = method => async request => {
     // Better Auth deletes the person, their sessions and accounts; the app's own rows go too, or a
     // deleted person's group memberships would still count when their groups change.
     if (path === '/admin/remove-user' && userId) await removeAppRows(userId);
+    if (path === '/admin/set-user-password' && userId) await endAccessAfterPasswordSet(auth, userId);
     await audit(actor, name, target, path === '/admin/set-role' ? { role: String(body.role ?? '') } : null);
     if (changesAccess) await scheduleSync();
   }

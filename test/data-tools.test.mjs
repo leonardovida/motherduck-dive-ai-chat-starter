@@ -126,3 +126,13 @@ test('Dive exports accept known formats from the frame only', () => {
   assert.equal(fromDiveFrame(event({}), {}), false);
   assert.equal(fromDiveFrame(event({}), null), false);
 });
+
+test('a SQL error goes back to the model as data, while connection failures still throw', async () => {
+  const sqlError = Object.assign(new Error('Catalog Error: Table with name orders does not exist!\nDid you mean "main.order"?'), { code: '42P01' });
+  const tools = createDataTools(async () => { throw sqlError; });
+  assert.deepEqual(await tools.runQuery({ sql: 'SELECT * FROM orders', limit: 5 }), { error: 'Catalog Error: Table with name orders does not exist!', sql: 'SELECT * FROM orders' });
+  const down = createDataTools(async () => { throw Object.assign(new Error('connection refused'), { code: '08006' }); });
+  await assert.rejects(down.runQuery({ sql: 'SELECT 1', limit: 5 }), /connection refused/);
+  const plain = createDataTools(async () => { throw new Error('socket hang up'); });
+  await assert.rejects(plain.runQuery({ sql: 'SELECT 1', limit: 5 }), /socket hang up/);
+});

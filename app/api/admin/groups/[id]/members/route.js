@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { NO_STORE, failure, requireAdmin } from '../../../../../../lib/admin-api.mjs';
+import { NO_STORE, failure, requireAdmin, badBody } from '../../../../../../lib/admin-api.mjs';
+import { readJsonBody } from '../../../../../../lib/request-body.mjs';
 import { createGroupStore } from '../../../../../../lib/groups.mjs';
 import { createPeopleService } from '../../../../../../lib/people.mjs';
 import { scheduleSync } from '../../../../../../lib/access-sync.mjs';
@@ -14,7 +15,7 @@ export async function PUT(request, { params }) {
   const { response, viewer } = await requireAdmin(request, { write: true });
   if (response) return response;
   let body;
-  try { body = z.object({ userId: z.string().max(64), manager: z.boolean().default(false) }).parse(await request.json()); } catch { return failure('invalid_member', 400); }
+  try { body = z.object({ userId: z.string().max(64), manager: z.boolean().default(false) }).parse(await readJsonBody(request, 4096)); } catch (error) { return badBody(error, 'invalid_member'); }
   const groupId = (await params).id.slice(0, 64);
   const groups = createGroupStore();
   try {

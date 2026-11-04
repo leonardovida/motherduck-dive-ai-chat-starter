@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { budgets } from '../../../../lib/budgets.mjs';
-import { NO_STORE, failure, requireAdmin } from '../../../../lib/admin-api.mjs';
+import { NO_STORE, failure, requireAdmin, badBody } from '../../../../lib/admin-api.mjs';
+import { readJsonBody } from '../../../../lib/request-body.mjs';
 import { createPeopleService, MAX_IMPORT } from '../../../../lib/people.mjs';
 import { listDives, publicDive } from '../../../../lib/dives.mjs';
 import { adminConfigured } from '../../../../lib/motherduck-admin.mjs';
@@ -52,7 +53,7 @@ export async function POST(request) {
   const { response, scope, viewer } = await requireAdmin(request, { write: true, managers: true });
   if (response) return response;
   let body;
-  try { body = createSchema.parse(await request.json()); } catch { return failure('invalid_people', 400); }
+  try { body = createSchema.parse(await readJsonBody(request, 131072)); } catch (error) { return badBody(error, 'invalid_people'); }
   if (body.access && body.access.dives !== '*') {
     const known = new Set(listDives().map(dive => dive.key));
     body.access = { ...body.access, dives: body.access.dives.filter(key => known.has(key)) };
