@@ -34,11 +34,15 @@ jobs:
           cache-dependency-path: deploy/aws/package-lock.json
       - run: npm ci --ignore-scripts --no-audit --no-fund
       - run: npm run typecheck
+      - run: npm test
       - run: npx cdk synth --quiet
         env:
           CDK_DISABLE_CLI_TELEMETRY: 'true'
       - name: The committed CloudFormation template matches the CDK app
         run: npm run check:template
+      # W3005 (a redundant DependsOn that CDK writes) is a warning, so only errors fail the job.
+      - name: Lint the CloudFormation template
+        run: pipx run --spec cfn-lint==1.59.0 cfn-lint --non-zero-exit-code error -- cloudformation.template.json
 
   azure:
     if: github.event_name != 'push' || github.ref_name == github.event.repository.default_branch
@@ -56,14 +60,36 @@ jobs:
           curl -fsSL -o "$RUNNER_TEMP/bicep" "https://github.com/Azure/bicep/releases/download/$BICEP_VERSION/bicep-linux-x64"
           echo "$BICEP_SHA256  $RUNNER_TEMP/bicep" | sha256sum -c -
           chmod +x "$RUNNER_TEMP/bicep"
-      - run: $RUNNER_TEMP/bicep lint deploy/azure/main.bicep
+      - name: Bicep lint reports no errors or warnings
+        run: |
+          output="$("$RUNNER_TEMP/bicep" lint deploy/azure/main.bicep 2>&1)" || { echo "$output"; exit 1; }
+          if [ -n "$output" ]; then echo "$output"; exit 1; fi
       - name: azuredeploy.json matches main.bicep
         run: |
-          $RUNNER_TEMP/bicep build deploy/azure/main.bicep --outfile "$RUNNER_TEMP/azuredeploy.json"
+          "$RUNNER_TEMP/bicep" build deploy/azure/main.bicep --outfile "$RUNNER_TEMP/azuredeploy.json"
           if ! diff -u deploy/azure/azuredeploy.json "$RUNNER_TEMP/azuredeploy.json"; then
             echo "::error::azuredeploy.json is out of date. Run: bicep build deploy/azure/main.bicep --outfile deploy/azure/azuredeploy.json (Bicep $BICEP_VERSION)"
             exit 1
           fi
+      - name: The parameters file in docs/deploy.md compiles against main.bicep
+        env:
+          MOTHERDUCK_APP_TOKEN: ci-placeholder
+          MOTHERDUCK_EMBED_TOKEN: ci-placeholder
+        run: |
+          awk '/^cat > deploy\/azure\/dive-chat.bicepparam <</{found=1; next} /^EOF$/{found=0} found' docs/deploy.md > deploy/azure/dive-chat.bicepparam
+          test -s deploy/azure/dive-chat.bicepparam
+          "$RUNNER_TEMP/bicep" build-params deploy/azure/dive-chat.bicepparam --outfile "$RUNNER_TEMP/dive-chat.parameters.json"
+      - name: The Deploy to Azure buttons open azuredeploy.json, and every parameter has a description
+        run: |
+          for file in README.md docs/deploy.md; do
+            grep -q 'portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2F.*%2FHEAD%2Fdeploy%2Fazure%2Fazuredeploy.json' "$file" \
+              || { echo "::error file=$file::The Deploy to Azure button does not point to deploy/azure/azuredeploy.json"; exit 1; }
+          done
+          node -e '
+            const template = JSON.parse(require("fs").readFileSync("deploy/azure/azuredeploy.json", "utf8"));
+            const missing = Object.entries(template.parameters).filter(([, p]) => !p.metadata?.description).map(([name]) => name);
+            if (missing.length) { console.error(`Parameters without a description: ${missing.join(", ")}`); process.exit(1); }
+          '
 
   gcp:
     if: github.event_name != 'push' || github.ref_name == github.event.repository.default_branch
@@ -84,4 +110,30 @@ jobs:
       - run: terraform -chdir=terraform init -backend=false -input=false -lockfile=readonly
       - run: terraform -chdir=terraform validate
       - run: shellcheck scripts/*.sh button/*.sh
-      - run: node -e 'JSON.parse(require("fs").readFileSync("app.json", "utf8"))'
+      - name: app.json uses only fields the Run on Google Cloud button accepts
+        # The button rejects unknown fields, and it requires an answer for every env entry, so
+        # "required": false has no effect there.
+        run: |
+          node -e '
+            const app = JSON.parse(require("fs").readFileSync("app.json", "utf8"));
+            const known = {
+              app: ["name", "env", "options", "build", "hooks"],
+              env: ["description", "value", "required", "generator", "order"],
+              options: ["allow-unauthenticated", "memory", "cpu", "port", "http2", "concurrency", "max-instances"],
+              build: ["skip", "buildpacks"],
+              hooks: ["prebuild", "postbuild", "precreate", "postcreate"],
+            };
+            const errors = [];
+            const only = (where, object, keys) => Object.keys(object ?? {}).filter(key => !keys.includes(key)).forEach(key => errors.push(`${where}: unknown field ${key}`));
+            only("app.json", app, known.app);
+            only("options", app.options, known.options);
+            only("build", app.build, known.build);
+            only("hooks", app.hooks, known.hooks);
+            for (const [name, entry] of Object.entries(app.env ?? {})) {
+              only(`env.${name}`, entry, known.env);
+              if (entry.required === false) errors.push(`env.${name}: the button ignores "required": false`);
+            }
+            if (errors.length) { console.error(errors.join("\n")); process.exit(1); }
+          '
+      - name: The button hooks keep secret values off command lines
+        run: scripts/test-button-hooks.sh

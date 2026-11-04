@@ -19,7 +19,18 @@ for name in $SECRET_NAMES; do refs="${refs:+$refs,}${name}=${PREFIX}-${name}:lat
 
 gcloud run services update "$service" --project "$project" --region "$region" \
   --service-account "$APP_ACCOUNT" --update-secrets "$refs" --update-env-vars "APP_URL=${app_url}" \
-  --no-cpu-throttling --cpu-boost --timeout 300
+  --no-cpu-throttling --cpu-boost --timeout 300 --max-instances 2
+
+# A new service account can take a minute to become usable in IAM policies, so retry.
+retry() {
+  local attempt
+  for attempt in 1 2 3 4 5 6; do
+    "$@" && return 0
+    echo "Retrying in 10 seconds ($attempt of 6)..." >&2
+    sleep 10
+  done
+  "$@"
+}
 
 scheduler_account="${service:0:24}-sched"
 scheduler_email="${scheduler_account}@${project}.iam.gserviceaccount.com"
@@ -33,9 +44,12 @@ schedule_job() {
     --command node --args "deploy/cron.mjs,${route}" --set-env-vars "APP_URL=${app_url}" \
     --set-secrets "CRON_SECRET=${PREFIX}-CRON_SECRET:latest" --service-account "$APP_ACCOUNT" \
     --max-retries 1 --task-timeout 600s --memory 512Mi
-  gcloud run jobs add-iam-policy-binding "$job" --project "$project" --region "$region" \
+  retry gcloud run jobs add-iam-policy-binding "$job" --project "$project" --region "$region" \
     --member "serviceAccount:${scheduler_email}" --role roles/run.invoker >/dev/null
-  local verb=create
+  retry upsert_trigger "$job" "$schedule"
+}
+upsert_trigger() {
+  local job="$1" schedule="$2" verb=create
   if gcloud scheduler jobs describe "$job" --project "$project" --location "$region" >/dev/null 2>&1; then verb=update; fi
   gcloud scheduler jobs "$verb" http "$job" --project "$project" --location "$region" \
     --schedule "$schedule" --time-zone "Etc/UTC" --attempt-deadline 320s --http-method POST \

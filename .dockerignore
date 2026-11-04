@@ -1,10 +1,13 @@
 .git
 .github
 .vercel
-.env*
+# Patterns match from the repository root, so nested copies (such as agent worktrees under
+# .claude/) need the **/ form to keep their dependencies and local secrets out of the build.
+.claude
+**/.env*
 !.env.example
-node_modules
-.next
+**/node_modules
+**/.next
 .next-e2e
 test-results
 playwright-report

@@ -4,11 +4,12 @@
   "type": "module",
   "description": "AWS CDK app that runs the container image on ECS Fargate behind CloudFront. See docs/deploy.md.",
   "engines": {
-    "node": ">=24 <27"
+    "node": ">=24.2 <27"
   },
   "scripts": {
     "cdk": "cdk",
     "typecheck": "tsc --noEmit",
+    "test": "node --test test/*.test.ts",
     "synth": "cdk synth --quiet",
     "template": "node scripts/write-template.ts",
     "check:template": "node scripts/write-template.ts --check"

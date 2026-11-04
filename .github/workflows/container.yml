@@ -51,7 +51,17 @@ jobs:
           [ "$status" = 200 ] || { echo "/api/auth returned $status"; exit 1; }
           curl -fsS http://localhost:3000/api/auth
           [ "$(docker exec app id -u)" != 0 ] || { echo "The container runs as root."; exit 1; }
-          docker exec app node deploy/cron.mjs /api/cron/daily && exit 1 || echo "cron.mjs refuses to run without APP_URL, as expected."
+          # The page carries the per-request script nonce, and its scripts are in the image.
+          page=$(curl -fsS http://localhost:3000/)
+          grep -q 'nonce="' <<<"$page" || { echo "The page has no script nonce."; exit 1; }
+          [[ $page =~ (/_next/static/[^\"\\]+\.js) ]] || { echo "The page references no scripts."; exit 1; }
+          curl -fsS -o /dev/null "http://localhost:3000${BASH_REMATCH[1]}" || { echo "${BASH_REMATCH[1]} is missing from the image."; exit 1; }
+          # cron.mjs is in the image and refuses to run without APP_URL. A missing file also
+          # exits 1, so check the message as well as the exit code.
+          if cron=$(docker exec app node deploy/cron.mjs /api/cron/daily 2>&1); then
+            echo "cron.mjs ran without APP_URL: $cron"; exit 1
+          fi
+          grep -q 'APP_URL must be' <<<"$cron" || { echo "Unexpected cron.mjs output: $cron"; exit 1; }
 
   publish:
     if: startsWith(github.ref, 'refs/tags/v')

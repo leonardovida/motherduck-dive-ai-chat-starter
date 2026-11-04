@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Creates the Secret Manager secrets the app reads, named <prefix>-<SETTING>. It asks for each
 # missing value with hidden input, generates SESSION_SECRET and CRON_SECRET, and keeps secrets
-# that already exist. Values go straight to Secret Manager on standard input; nothing is printed,
+# that already hold a value. Values go straight to Secret Manager on standard input; nothing is printed,
 # logged or written to disk. See docs/deploy.md.
 #
 #   deploy/gcp/scripts/create-secrets.sh --project my-project \
@@ -55,9 +55,15 @@ for name in "${names[@]}"; do
   [[ -n "$name" ]] || continue
   [[ "$name" =~ ^[A-Z][A-Z0-9_]*$ ]] || { echo "Skipping $name: not a setting name." >&2; continue; }
   id="${prefix}-${name}"
+  exists=""
   if gcloud secrets describe "$id" --project "$project" >/dev/null 2>&1; then
-    echo "Keeping the existing secret $id."
-    continue
+    exists=1
+    # A secret without an enabled version (for example after an interrupted run) has no value
+    # Cloud Run can read, so it gets one below instead of being kept.
+    if [[ -n "$(gcloud secrets versions list "$id" --project "$project" --filter=state=ENABLED --limit=1 --format='value(name)')" ]]; then
+      echo "Keeping the existing secret $id."
+      continue
+    fi
   fi
   case "$name" in
     SESSION_SECRET | CRON_SECRET) value="$(openssl rand -hex 32)" ;;
@@ -69,7 +75,12 @@ for name in "${names[@]}"; do
       done
       ;;
   esac
-  printf '%s' "$value" | gcloud secrets create "$id" --project "$project" --replication-policy=automatic --data-file=- >/dev/null
+  if [[ -n "$exists" ]]; then
+    printf '%s' "$value" | gcloud secrets versions add "$id" --project "$project" --data-file=- >/dev/null
+    echo "Added a value to the existing secret $id."
+  else
+    printf '%s' "$value" | gcloud secrets create "$id" --project "$project" --replication-policy=automatic --data-file=- >/dev/null
+    echo "Created the secret $id."
+  fi
   value=""
-  echo "Created the secret $id."
 done

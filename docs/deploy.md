@@ -54,13 +54,17 @@ Each release publishes `ghcr.io/leonardovida/motherduck-dive-ai-chat-starter:<ve
 
 A fork publishes its own image, `ghcr.io/<owner>/<repo>`, when it pushes a release tag (`.github/workflows/container.yml`). GitHub may create the package as private: open the package's settings on GitHub and set its visibility to **Public** once, so the clouds can pull it without credentials. To build the image yourself, run `docker build -t dive-chat .` at the repository root.
 
+The published image is built for `linux/amd64`, which all three deployments use. On an Apple silicon Mac it runs under emulation, so for local testing build it yourself, which builds for your own processor.
+
 The image runs `node server.js`, Next.js's production server, as a non-root user on port 3000. `GET /api/auth` returns 200 when the app is up, so the deployments use it as their health check.
 
 ## AWS
 
 The stack runs one Fargate task behind an internal Application Load Balancer, with a CloudFront distribution in front of it. CloudFront provides the `https://<id>.cloudfront.net` address, so you do not need a domain. AWS App Runner is [closed to new customers](https://docs.aws.amazon.com/apprunner/latest/dg/apprunner-availability-change.html) since April 30, 2026, which is why the stack uses Fargate.
 
-**Prerequisites:** an AWS account, permission to create IAM roles, and a Region that supports [CloudFront VPC origins](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-vpc-origins.html#vpc-origins-supported-regions), such as `us-east-1`, `us-west-2` or `eu-west-1`. For the CDK path, also Node.js 24 or later and the AWS CLI signed in to the account.
+**Prerequisites:** an AWS account, permission to create IAM roles, and a Region that supports [CloudFront VPC origins](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-vpc-origins.html#vpc-origins-supported-regions), such as `us-east-1`, `us-west-2` or `eu-west-1`. For the CDK path, also Node.js 24.2 or later and the AWS CLI signed in to the account.
+
+The stack uses two Availability Zones, by default the first two in the Region. A few zones lack VPC origins: `use1-az3` in `us-east-1`, `usw1-az2` in `us-west-1`, `apne1-az3` in `ap-northeast-1` and `cac1-az3` in `ca-central-1`. These are zone IDs, and each account maps zone names such as `us-east-1a` to IDs differently. In those Regions, list your mapping in AWS CloudShell or with the AWS CLI, `aws ec2 describe-availability-zones --query "AvailabilityZones[].[ZoneName,ZoneId]" --output text`, and if the first two names map to an excluded ID, choose two other zones: the `AvailabilityZone1` and `AvailabilityZone2` parameters in the console, or the `availabilityZones` [CDK option](#cdk-options).
 
 Deploying on AWS takes three steps: deploy the stack, put your values into the secrets it created, and restart the app.
 
@@ -68,7 +72,7 @@ Deploying on AWS takes three steps: deploy the stack, put your values into the s
 
 1. Download [`deploy/aws/cloudformation.template.json`](../deploy/aws/cloudformation.template.json).
 2. Open [CloudFormation > Create stack](https://console.aws.amazon.com/cloudformation/home#/stacks/create), choose **Upload a template file** and select it.
-3. Name the stack, for example `MotherDuckDiveChat`, and fill in `MotherDuckEmbedUsername`, `DiveOverviewId` and `DiveOverviewChatDatabase`. Set `ImageUri` to a version tag if you want one.
+3. Name the stack, for example `MotherDuckDiveChat`, and fill in `MotherDuckEmbedUsername`, `DiveOverviewId` and `DiveOverviewChatDatabase`. Set `ImageUri` to a version tag if you want one. Leave `AvailabilityZone1` and `AvailabilityZone2` empty unless the [zone note above](#aws) applies to you.
 4. Acknowledge that the stack creates IAM roles and choose **Submit**. It takes 10 to 15 minutes, mostly for CloudFront.
 5. Open the **Outputs** tab. `AppUrl` is the app's address. Continue with [step 2](#2-fill-in-the-secrets).
 
@@ -105,7 +109,7 @@ Set these under `context` in [`deploy/aws/cdk.json`](../deploy/aws/cdk.json), or
 | `secretNames` | embed token, chat token, `OPENAI_API_KEY` | The other settings read from Secrets Manager. Replace `OPENAI_API_KEY` with your provider's key, and add SSO client secrets or `MOTHERDUCK_ADMIN_TOKEN` here. |
 | `environment` | `{}` | Plain settings, for example `{"CHAT_PROVIDER": "anthropic", "CHAT_RETENTION_DAYS": "90"}`. |
 | `domainName`, `certificateArn` | none | Your own domain, with an ACM certificate for it in `us-east-1`. Point a CNAME at the CloudFront address afterwards. |
-| `availabilityZones` | two zones | Choose zones, for example `us-east-1a,us-east-1b`, if a zone in your Region lacks CloudFront VPC origins. |
+| `availabilityZones` | none | Two or more zones, for example `us-east-1b,us-east-1c`, if one of the Region's first two zones lacks CloudFront VPC origins (see [AWS](#aws)). Without it, the stack uses the `AvailabilityZone1` and `AvailabilityZone2` parameters, or the first two zones when those are empty. |
 | `desiredCount`, `cpu`, `memoryMiB` | `1`, `512`, `1024` | The size of the app. Sign-in limits are kept per task. |
 
 After changing `cdk.json`, run `npm run template` to refresh `cloudformation.template.json`. CI checks that the two agree.
@@ -140,7 +144,7 @@ The stack sets `APP_URL` to the CloudFront address, or to your domain, before th
 
 ### Scheduled calls on AWS
 
-Two EventBridge Scheduler schedules run the `vercel.json` crons: the daily upkeep at 04:17 UTC and the weekly digest on Mondays at 08:00 UTC. Each starts a small Fargate task from the same image, which calls the route with `CRON_SECRET` and stops. To run one now, start a task from the stack's `DailyTask` definition in the ECS console. The output is in the stack's CloudWatch log group.
+Two EventBridge Scheduler schedules run the `vercel.json` crons: the daily upkeep at 04:17 UTC and the weekly digest on Mondays at 08:00 UTC. Each starts a small Fargate task from the same image, which calls the route with `CRON_SECRET` through the internal load balancer, not CloudFront, and stops. This keeps a long daily run within the route's 300-second limit instead of CloudFront's 120-second origin timeout. To run one now, open the stack's cluster in the ECS console, choose **Tasks** and then **Run task**, choose the **Launch type** `FARGATE`, and pick the task definition whose name contains `DailyTask`. Under **Networking**, choose the stack's VPC, its two public subnets (their names contain `tasks`), the security group described as "Scheduled calls to the app", and turn on **Public IP**: the task pulls the image from GitHub Container Registry over the internet. The output is in the stack's CloudWatch log group.
 
 ### Upgrade on AWS
 
@@ -170,17 +174,25 @@ The app runs on Cloud Run with secrets from Secret Manager. Cloud Scheduler star
 
 The [Run on Google Cloud button](https://github.com/GoogleCloudPlatform/cloud-run-button) opens Cloud Shell and runs [`deploy/gcp/app.json`](../deploy/gcp/app.json). Google labels it "not an officially supported Google product". It deploys accounts mode, so [prepare accounts mode](#prepare-accounts-mode) first. Then it:
 
-1. Asks for the project and Region, then `MOTHERDUCK_EMBED_USERNAME`, `DIVE_OVERVIEW_ID`, `DIVE_OVERVIEW_CHAT_DATABASE` and `APP_TITLE`.
+1. Asks for the project and Region, then `MOTHERDUCK_EMBED_USERNAME`, `DIVE_OVERVIEW_ID`, `DIVE_OVERVIEW_CHAT_DATABASE` and `APP_TITLE`. Each needs a value. Press Enter to keep the suggested title.
 2. Copies the published image into Artifact Registry. A fork with its own published image uses that one.
-3. Asks for your model provider's setting name (default `OPENAI_API_KEY`), then for each missing secret with hidden input: `MOTHERDUCK_APP_TOKEN`, `MOTHERDUCK_EMBED_TOKEN`, `MOTHERDUCK_CHAT_TOKEN` and the model key. It generates `SESSION_SECRET` and `CRON_SECRET`. Each goes straight to Secret Manager as `motherduck-dive-chat-<SETTING>`. Existing secrets are kept.
+3. Asks for your model provider's secret setting names, separated by commas (default `OPENAI_API_KEY`, or for example `AWS_ACCESS_KEY_ID,AWS_SECRET_ACCESS_KEY`). Then it asks for each missing secret with hidden input: `MOTHERDUCK_APP_TOKEN`, `MOTHERDUCK_EMBED_TOKEN`, `MOTHERDUCK_CHAT_TOKEN` and the model provider's secrets. It generates `SESSION_SECRET` and `CRON_SECRET`. Each goes straight to Secret Manager as `motherduck-dive-chat-<SETTING>`. Existing secrets that hold a value are kept.
 4. Creates the Cloud Run service and a service account that can read only those secrets.
-5. Connects the secrets, sets `APP_URL`, and creates the scheduled jobs.
+5. Connects the secrets, sets `APP_URL`, limits the service to two instances, and creates the scheduled jobs.
 
-It prints the app's address at the end.
+It prints the app's address at the end. A model provider other than OpenAI may also need plain settings from [Model providers](model-providers.md). Add them afterward, for example `gcloud run services update motherduck-dive-chat --region <region> --update-env-vars CHAT_PROVIDER=bedrock,AWS_REGION=us-east-1`.
+
+The button runs steps 3 to 5 only when it creates the service. If it stops after the service exists, delete the service with `gcloud run services delete motherduck-dive-chat --region <region>` and click the button again. Secrets that already hold a value are kept.
 
 ### Repeatable: Terraform
 
+This path needs the [gcloud CLI](https://cloud.google.com/sdk/docs/install) and Terraform 1.9 or later on your computer.
+
 ```sh
+# 0. Sign in: gcloud for the secrets script, application default credentials for Terraform
+gcloud auth login
+gcloud auth application-default login
+
 # 1. Create the secrets (hidden prompts; existing secrets are kept)
 deploy/gcp/scripts/create-secrets.sh --project <project id> --sign-in accounts \
   --secrets MOTHERDUCK_EMBED_TOKEN,MOTHERDUCK_CHAT_TOKEN,OPENAI_API_KEY
@@ -198,7 +210,7 @@ Terraform reads only the secrets' names, so no secret value reaches the Terrafor
 
 ### Password sign-in on Google Cloud
 
-Set `domain = "dives.example.com"` and `sign_in_mode = "password"`, and create `<prefix>-DEMO_PASSWORD` with `create-secrets.sh --sign-in password`. Terraform then adds a global external Application Load Balancer with a Google-managed certificate. The load balancer overwrites `X-Client-IP` with the visitor's address ([custom headers](https://cloud.google.com/load-balancing/docs/https/custom-headers)), and Cloud Run accepts traffic only from load balancers in your project. Point an A record for the domain at the `load_balancer_ip` output. The certificate becomes active once DNS resolves, which often takes 15 to 60 minutes.
+Set `domain = "dives.example.com"` and `sign_in_mode = "password"`, and create `<prefix>-DEMO_PASSWORD` with `create-secrets.sh --sign-in password`. Terraform then adds a global external Application Load Balancer with a Google-managed certificate. The load balancer overwrites `X-Client-IP` with the visitor's address ([custom headers](https://cloud.google.com/load-balancing/docs/https/custom-headers)). Cloud Run accepts internet traffic only through the load balancer ([ingress](https://cloud.google.com/run/docs/securing/ingress)), and its `run.app` address is turned off, so no request can reach the app without that header being set. Point an A record for the domain at the `load_balancer_ip` output. The certificate becomes active once DNS resolves, which often takes 15 to 60 minutes.
 
 ### APP_URL on Google Cloud
 
@@ -251,31 +263,69 @@ The button opens the Azure portal with [`deploy/azure/azuredeploy.json`](../depl
 | **Model Api Key Setting**, **Model Api Key** | Your provider's setting name and key |
 | **Motherduck Embed Username**, **Dive Overview Id**, **Dive Overview Chat Database** | As in the [settings reference](configuration.md#dashboard-embedded-dive) |
 | **Settings**, **Extra Secrets** | Optional JSON objects for other settings, for example `{"CHAT_PROVIDER": "azure", "AZURE_RESOURCE_NAME": "my-resource"}` |
+| **Trusted Ip Header**, **Allowed Ip Ranges** | Leave them empty. See [Password sign-in on Azure](#password-sign-in-on-azure). |
 | **Session Secret**, **Cron Secret** | Leave them as they are. They are generated. |
+| **Keep Generated Secrets** | `false` on the first deployment. See [Deploy again on Azure](#deploy-again-on-azure). |
 
 Secret fields are hidden, are not stored in the deployment history, and go only into Key Vault. Deployment takes about five minutes. The **Outputs** of the deployment show `appUrl`.
 
 ### Repeatable: Bicep
 
+The Azure CLI prompts only for parameters that have no default value, so it never asks for the chat token or the model provider key. Describe the deployment in a Bicep parameters file instead. The file reads each secret from an environment variable and holds no secret values:
+
 ```sh
-az group create --name dive-chat --location westeurope
-az deployment group create --resource-group dive-chat --template-file deploy/azure/main.bicep \
-  --parameters motherduckEmbedUsername=<service account> diveOverviewId=<dive id> diveOverviewChatDatabase=<database>
+cat > deploy/azure/dive-chat.bicepparam <<'EOF'
+using 'main.bicep'
+
+param motherduckEmbedUsername = '<service account>'
+param diveOverviewId = '<dive id>'
+param diveOverviewChatDatabase = '<database>'
+param modelApiKeySetting = 'OPENAI_API_KEY'
+param keepGeneratedSecrets = false
+
+// Read from the environment when the deployment starts.
+param signInSecret = readEnvironmentVariable('MOTHERDUCK_APP_TOKEN')
+param motherduckEmbedToken = readEnvironmentVariable('MOTHERDUCK_EMBED_TOKEN')
+param motherduckChatToken = readEnvironmentVariable('MOTHERDUCK_CHAT_TOKEN', '')
+param modelApiKey = readEnvironmentVariable('OPENAI_API_KEY', '')
+EOF
 ```
 
-The Azure CLI asks for each secret parameter with hidden input. After editing `main.bicep`, rebuild the ARM template with the same Bicep version as CI (see `.github/workflows/deploy-templates.yml`): `az bicep build --file deploy/azure/main.bicep --outfile deploy/azure/azuredeploy.json`. CI fails when the two differ.
+Use your provider's setting name for both `modelApiKeySetting` and the variable that `modelApiKey` reads. Then, with those variables in your environment from your secret manager, deploy:
+
+```sh
+az group create --name dive-chat --location westeurope
+az deployment group create --resource-group dive-chat --parameters deploy/azure/dive-chat.bicepparam
+```
+
+A required variable that is missing stops the deployment before anything is created. After editing `main.bicep`, rebuild the ARM template with the same Bicep version as CI (see `.github/workflows/deploy-templates.yml`): `az bicep build --file deploy/azure/main.bicep --outfile deploy/azure/azuredeploy.json`. CI fails when the two differ.
+
+### Deploy again on Azure
+
+Deploying the template again, to change a setting or to add a domain, sends every value again:
+
+- Set **Keep Generated Secrets** to `true` (`keepGeneratedSecrets = true` in the parameters file). Key Vault then keeps its `SESSION_SECRET` and `CRON_SECRET`. With `false`, the deployment stores new values, which signs everyone out.
+- Enter every secret again, including the optional ones. A secret field left empty removes that setting from the app.
+
+Container Apps reads a new secret value from Key Vault within 30 minutes and restarts the app to use it ([Microsoft Learn](https://learn.microsoft.com/azure/container-apps/manage-secrets#key-vault-secret-uri-and-secret-rotation)).
 
 ### Password sign-in on Azure
 
-Container Apps does not provide a header that it overwrites with the visitor's address. For the shared password, put a proxy you control in front of the app that overwrites a header such as `X-Client-IP` with the client address, and make it the only way in, for example Application Gateway with an internal Container Apps environment. Then set **Sign In Mode** to `password`, **Sign In Secret** to the password and **Trusted Ip Header** to that header. Otherwise use accounts.
+Container Apps does not overwrite any header with the visitor's address: it appends to `X-Forwarded-For`, and the app's own address passes on any header a visitor sends. If **Trusted Ip Header** is set while that address is open, anyone can choose the address that the app counts failed sign-ins against, and the limit on password guessing no longer applies. Leave it empty unless all of the following are in place:
+
+1. A proxy you control sits in front of the app and sets the header on every request, replacing any value the visitor sent. For example, an Application Gateway v2 [rewrite rule](https://learn.microsoft.com/azure/application-gateway/rewrite-http-headers-url) that sets the request header `X-Client-IP` to `{var_client_ip}`.
+2. **Allowed Ip Ranges** lists only the proxy's outbound addresses, for example `["203.0.113.10/32"]`, so that nothing else reaches the app's own address ([IP restrictions](https://learn.microsoft.com/azure/container-apps/ip-restrictions)). Set them in the template rather than in the portal, because deploying the template again replaces the app's ingress settings.
+3. **Settings** has `"APP_URL": "https://your.domain"`, the address of the proxy, so that the scheduled jobs reach the app through it.
+
+Then set **Sign In Mode** to `password`, **Sign In Secret** to the password and **Trusted Ip Header** to `x-client-ip`. Azure Front Door on its own is not enough: every Front Door profile shares the same outbound addresses, so another customer's profile could reach the app and set the header ([Front Door headers](https://learn.microsoft.com/azure/frontdoor/front-door-http-headers-protocol)). Otherwise use accounts.
 
 ### APP_URL on Azure
 
-`APP_URL` is set for you to `https://<appName>.<environment domain>`, the app's address in Container Apps. If you add a custom domain later, add `"APP_URL": "https://your.domain"` to **Settings** and deploy again.
+`APP_URL` is set for you to `https://<appName>.<environment domain>`, the app's address in Container Apps. If you add a custom domain later, add `"APP_URL": "https://your.domain"` to **Settings** and [deploy again](#deploy-again-on-azure). The app and the scheduled jobs then use that address.
 
 ### Scheduled calls on Azure
 
-Two Container Apps jobs, `<appName>-daily` (04:17 UTC) and `<appName>-digest` (Mondays 08:00 UTC), run the app image once to call the route with `CRON_SECRET` from Key Vault. To run one now: `az containerapp job start --name dive-chat-daily --resource-group <group>`. **Execution history** on the job shows each run.
+Two Container Apps jobs, `<appName>-daily` (04:17 UTC) and `<appName>-digest` (Mondays 08:00 UTC), run the app image once to call the route at `APP_URL` with `CRON_SECRET` from Key Vault. Container Apps evaluates job schedules in UTC ([jobs](https://learn.microsoft.com/azure/container-apps/jobs#scheduled-jobs)). A failed run is retried once, and each run, retry included, stops after 15 minutes. To run one now: `az containerapp job start --name dive-chat-daily --resource-group <group>`. **Execution history** on the job shows each run.
 
 ### Upgrade on Azure
 
@@ -286,7 +336,7 @@ az containerapp job update --name dive-chat-daily --resource-group <group> --ima
 az containerapp job update --name dive-chat-digest --resource-group <group> --image "$image"
 ```
 
-Avoid redeploying the whole template only to upgrade: it generates a new `SESSION_SECRET`, which signs everyone out, unless you pass the current value.
+These commands change only the image. To upgrade by deploying the template again instead, set **Image** and follow [Deploy again on Azure](#deploy-again-on-azure).
 
 ### Cost on Azure
 
@@ -302,9 +352,12 @@ Delete the resource group: `az group delete --name <group>`. Key Vault keeps a d
 | --- | --- |
 | Password sign-in says it **isn't configured** | `AUTH_TRUSTED_IP_HEADER` is not set, or no trusted proxy sets it. Use accounts, or see [Choose how people sign in](#choose-how-people-sign-in). |
 | The AWS app shows connection or sign-in errors after the first deploy | The secrets still hold their random placeholders, or the service has not restarted since you changed them. See [Fill in the secrets](#2-fill-in-the-secrets). |
-| The AWS stack fails at the VPC origin | A zone in your Region lacks CloudFront VPC origins. Set `availabilityZones`. |
+| The AWS stack fails at the VPC origin | One of the stack's zones lacks CloudFront VPC origins. Delete the failed stack, then deploy again with two other zones: `AvailabilityZone1` and `AvailabilityZone2` in the console, or `availabilityZones` with CDK. See [AWS](#aws). |
 | Terraform says a secret was not found | Run `create-secrets.sh` with the same `--prefix` and `--secrets`. |
-| The Azure app shows a secret error on first deploy | The new identity's Key Vault access can take a few minutes to apply. Run the deployment again. |
+| A scheduled job fails with `redirected. Set APP_URL ...` | `APP_URL` points at an address that redirects, for example a domain that forwards to another one. Set it to the address the app answers on directly. |
+| The Run on Google Cloud button stopped after it created the service | The button sets up secrets and scheduled jobs only for a new service. Delete the service and click the button again. See [One click: Run on Google Cloud](#one-click-run-on-google-cloud). |
+| The first Azure deployment fails at the container app or a job with a Key Vault secret error | The new identity's Key Vault role can take up to 10 minutes to take effect. Wait, then run the same deployment again with **Keep Generated Secrets** set to `false`. |
+| Everyone is signed out after deploying the Azure template again | **Keep Generated Secrets** was `false`, so the deployment stored a new `SESSION_SECRET`. Set it to `true` for later deployments. See [Deploy again on Azure](#deploy-again-on-azure). |
 | SSO says it **did not complete** | Register `<APP_URL>/api/account/callback/<provider id>`, using the `APP_URL` address. |
 | A scheduled call fails with 404 | `CRON_SECRET` is missing or shorter than 16 characters in the app, or the job reads a different secret. |
 

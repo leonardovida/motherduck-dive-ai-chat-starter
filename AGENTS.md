@@ -43,7 +43,7 @@ Credentials stay in environment variables. Never put keys, AWS secrets, service-
 
 ## Deploy to AWS, Google Cloud or Azure
 
-When the user asks to host the app outside Vercel, follow [docs/deploy.md](docs/deploy.md). Ask which cloud and which sign-in mode; on Google Cloud without a domain, and on Azure, the shared password needs a trusted proxy, so suggest accounts. Have the user enter each secret value in that cloud's secret manager, under the names listed there, or at the hidden prompts the guide describes. Never put secret values on a command line, in a template, in `terraform.tfvars` or in `cdk.json`. Deploying, and creating cloud resources, needs the user's explicit request.
+When the user asks to host the app outside Vercel, follow [docs/deploy.md](docs/deploy.md). Ask which cloud and which sign-in mode; on Google Cloud without a domain, and on Azure, the shared password needs a trusted proxy, so suggest accounts. Have the user enter each secret value in that cloud's secret manager, under the names listed there, at the hidden prompts the guide describes, or, for the Azure Bicep path, as environment variables that the parameters file reads. Never put secret values on a command line, in a template, in a parameters file, in `terraform.tfvars` or in `cdk.json`. Deploying, and creating cloud resources, needs the user's explicit request.
 
 ## Upgrade a copy to a newer release
 

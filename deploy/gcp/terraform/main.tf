@@ -31,14 +31,16 @@ resource "google_project_service" "apis" {
 }
 
 # Fails the plan, before anything is created, when a secret has not been created yet.
+# create-secrets.sh has already turned on Secret Manager, so this is read while planning. A
+# depends_on here would postpone the read until after the APIs and service accounts exist.
 data "google_secret_manager_secret" "app" {
-  for_each   = local.secret_id
-  secret_id  = each.value
-  depends_on = [google_project_service.apis]
+  for_each  = local.secret_id
+  secret_id = each.value
 }
 
 resource "google_service_account" "app" {
-  account_id   = substr("${var.service_name}-app", 0, 30)
+  # Service account IDs hold at most 30 characters, so a long service name is shortened first.
+  account_id   = "${substr(var.service_name, 0, 24)}-app"
   display_name = "MotherDuck Dive + AI Chat (app and scheduled calls)"
   depends_on   = [google_project_service.apis]
 }
@@ -55,8 +57,11 @@ resource "google_cloud_run_v2_service" "app" {
   location             = var.region
   deletion_protection  = false
   invoker_iam_disabled = true # A public web app; the app's own sign-in protects it.
-  # With a domain, only the load balancer (which sets the trusted client-IP header) reaches the app.
-  ingress = local.use_domain ? "INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER" : "INGRESS_TRAFFIC_ALL"
+  # With a domain, only the load balancer (which sets the trusted client-IP header) reaches the app:
+  # internet traffic must come through it, and the run.app address, which sources inside the
+  # project could still call with any header, is turned off.
+  ingress              = local.use_domain ? "INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER" : "INGRESS_TRAFFIC_ALL"
+  default_uri_disabled = local.use_domain
 
   template {
     service_account = google_service_account.app.email
@@ -159,7 +164,7 @@ resource "google_cloud_run_v2_job" "cron" {
 }
 
 resource "google_service_account" "scheduler" {
-  account_id   = substr("${var.service_name}-sched", 0, 30)
+  account_id   = "${substr(var.service_name, 0, 24)}-sched"
   display_name = "MotherDuck Dive + AI Chat (starts the scheduled jobs)"
   depends_on   = [google_project_service.apis]
 }
