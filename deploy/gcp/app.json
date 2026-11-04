@@ -10,13 +10,12 @@
       "order": 2
     },
     "DIVE_OVERVIEW_CHAT_DATABASE": {
-      "description": "The database chat may query (leave empty to show the Dive without chat)",
-      "required": false,
+      "description": "The database the chat may query, as the read-only chat token sees it",
       "order": 3
     },
     "APP_TITLE": {
-      "description": "The name shown in the header (optional)",
-      "required": false,
+      "description": "The name shown in the header",
+      "value": "Dive workspace",
       "order": 4
     }
   },

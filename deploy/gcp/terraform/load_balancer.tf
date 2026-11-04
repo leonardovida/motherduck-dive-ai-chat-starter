@@ -1,8 +1,10 @@
 # Optional (set var.domain): a global external Application Load Balancer in front of Cloud Run.
 # It overwrites X-Client-IP with the address the client connected from, so the app can trust it
-# for AUTH_TRUSTED_IP_HEADER, and the service accepts traffic only from load balancers in this
-# project. Point an A record for the domain at the `load_balancer_ip` output; the Google-managed
-# certificate becomes active once DNS resolves (often 15 to 60 minutes).
+# for AUTH_TRUSTED_IP_HEADER, and the service accepts traffic only through the load balancer
+# (main.tf turns off its run.app address). Point an A record for the domain at the
+# `load_balancer_ip` output; the Google-managed certificate becomes active once DNS resolves
+# (often 15 to 60 minutes). Resources that do not lead back to the Cloud Run service wait for
+# the Compute Engine API explicitly.
 
 resource "google_compute_region_network_endpoint_group" "app" {
   count                 = local.use_domain ? 1 : 0
@@ -37,6 +39,7 @@ resource "google_compute_managed_ssl_certificate" "app" {
   managed {
     domains = [var.domain]
   }
+  depends_on = [google_project_service.apis]
 }
 
 resource "google_compute_target_https_proxy" "app" {
@@ -47,8 +50,9 @@ resource "google_compute_target_https_proxy" "app" {
 }
 
 resource "google_compute_global_address" "app" {
-  count = local.use_domain ? 1 : 0
-  name  = "${var.service_name}-ip"
+  count      = local.use_domain ? 1 : 0
+  name       = "${var.service_name}-ip"
+  depends_on = [google_project_service.apis]
 }
 
 resource "google_compute_global_forwarding_rule" "https" {
@@ -68,6 +72,7 @@ resource "google_compute_url_map" "redirect" {
     https_redirect = true
     strip_query    = false
   }
+  depends_on = [google_project_service.apis]
 }
 
 resource "google_compute_target_http_proxy" "redirect" {

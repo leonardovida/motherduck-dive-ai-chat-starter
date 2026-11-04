@@ -84,4 +84,30 @@ jobs:
       - run: terraform -chdir=terraform init -backend=false -input=false -lockfile=readonly
       - run: terraform -chdir=terraform validate
       - run: shellcheck scripts/*.sh button/*.sh
-      - run: node -e 'JSON.parse(require("fs").readFileSync("app.json", "utf8"))'
+      - name: app.json uses only fields the Run on Google Cloud button accepts
+        # The button rejects unknown fields, and it requires an answer for every env entry, so
+        # "required": false has no effect there.
+        run: |
+          node -e '
+            const app = JSON.parse(require("fs").readFileSync("app.json", "utf8"));
+            const known = {
+              app: ["name", "env", "options", "build", "hooks"],
+              env: ["description", "value", "required", "generator", "order"],
+              options: ["allow-unauthenticated", "memory", "cpu", "port", "http2", "concurrency", "max-instances"],
+              build: ["skip", "buildpacks"],
+              hooks: ["prebuild", "postbuild", "precreate", "postcreate"],
+            };
+            const errors = [];
+            const only = (where, object, keys) => Object.keys(object ?? {}).filter(key => !keys.includes(key)).forEach(key => errors.push(`${where}: unknown field ${key}`));
+            only("app.json", app, known.app);
+            only("options", app.options, known.options);
+            only("build", app.build, known.build);
+            only("hooks", app.hooks, known.hooks);
+            for (const [name, entry] of Object.entries(app.env ?? {})) {
+              only(`env.${name}`, entry, known.env);
+              if (entry.required === false) errors.push(`env.${name}: the button ignores "required": false`);
+            }
+            if (errors.length) { console.error(errors.join("\n")); process.exit(1); }
+          '
+      - name: The button hooks keep secret values off command lines
+        run: scripts/test-button-hooks.sh
