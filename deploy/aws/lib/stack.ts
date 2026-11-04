@@ -39,7 +39,9 @@ export interface DiveChatOptions {
   // Optional: your own domain, with an ACM certificate for it in us-east-1.
   domainName?: string;
   certificateArn?: string;
-  // Optional: the Availability Zones to use, for Regions where some zones lack CloudFront VPC origins.
+  // Optional: two or more Availability Zones to use, for Regions where some zones lack CloudFront
+  // VPC origins. Without them, the template takes two zones from its AvailabilityZone1 and
+  // AvailabilityZone2 parameters, or the Region's first two zones when those are empty.
   availabilityZones?: string[];
   desiredCount: number;
   cpu: number;
@@ -48,7 +50,15 @@ export interface DiveChatOptions {
 
 const ENV_NAME = /^[A-Z][A-Z0-9_]{0,99}$/;
 // Set by the stack itself; the options cannot override them.
-const MANAGED = new Set(['SESSION_SECRET', 'CRON_SECRET', 'APP_URL', 'AUTH_TRUSTED_IP_HEADER', 'NODE_ENV', 'PORT', 'HOSTNAME']);
+const MANAGED = new Set(['SESSION_SECRET', 'CRON_SECRET', 'APP_URL', 'AUTH_TRUSTED_IP_HEADER', 'KEEP_ALIVE_TIMEOUT', 'NODE_ENV', 'PORT', 'HOSTNAME']);
+// How long the load balancer keeps an idle connection, to the viewer side and to the app. A
+// streamed chat answer can pause while a query runs.
+export const ALB_IDLE_TIMEOUT_SECONDS = 300;
+// Next.js's standalone server keeps idle connections for 5 seconds unless KEEP_ALIVE_TIMEOUT says
+// otherwise. The load balancer reuses idle connections for up to its idle timeout, so the app must
+// keep them longer, or the load balancer can send a request on a connection the app has just
+// closed and answer 502. https://docs.aws.amazon.com/elasticloadbalancing/latest/application/edit-load-balancer-attributes.html#connection-idle-timeout
+export const APP_KEEP_ALIVE_TIMEOUT_MS = (ALB_IDLE_TIMEOUT_SECONDS + 10) * 1000;
 
 export function validateOptions(options: DiveChatOptions): void {
   if (!['password', 'accounts'].includes(options.signIn)) throw new Error('signIn must be "password" or "accounts".');
@@ -59,6 +69,10 @@ export function validateOptions(options: DiveChatOptions): void {
   const both = options.secretNames.filter(name => name in options.environment);
   if (both.length) throw new Error(`${both.join(', ')} cannot be both a secret and a plain setting.`);
   if (Boolean(options.domainName) !== Boolean(options.certificateArn)) throw new Error('Set domainName and certificateArn together.');
+  // The load balancer needs subnets in at least two zones.
+  const zones = options.availabilityZones ?? [];
+  if (zones.length === 1) throw new Error('availabilityZones needs at least two zones, for example us-east-1a,us-east-1b.');
+  if (new Set(zones).size !== zones.length) throw new Error('availabilityZones lists a zone twice.');
 }
 
 export class DiveChatStack extends cdk.Stack {
@@ -95,10 +109,43 @@ export class DiveChatStack extends cdk.Stack {
     const userSecrets = [options.signIn === 'accounts' ? 'MOTHERDUCK_APP_TOKEN' : 'DEMO_PASSWORD', ...options.secretNames];
     const placeholders = userSecrets.map(name => [name, generated(`Secret${name}`, name, `${name}. Replace the random placeholder with the real value (plaintext), then restart the service. See docs/deploy.md.`)] as const);
 
+    // CloudFront VPC origins are missing from a few zones (use1-az3 in us-east-1, for example), and
+    // zone names map to different zones in each account. When the CDK options name no zones, the
+    // template takes them as parameters, so a console deployment can avoid such a zone too.
+    // https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-vpc-origins.html#vpc-origins-supported-regions
+    let availabilityZones = options.availabilityZones ?? [];
+    if (!availabilityZones.length) {
+      const zone = (n: number) => new cdk.CfnParameter(this, `AvailabilityZone${n}`, {
+        type: 'String',
+        default: '',
+        allowedPattern: '^([a-z]{2}(-[a-z]+)+-[0-9][a-z])?$',
+        constraintDescription: 'must be empty or an Availability Zone name such as us-east-1a.',
+        description: `Optional. ${n === 1 ? 'The first' : 'The second'} Availability Zone, such as us-east-1${n === 1 ? 'a' : 'b'}. Set both when one of the Region's first two zones lacks CloudFront VPC origins (docs/deploy.md). Leave both empty to use the first two.`,
+      });
+      const zones = [zone(1), zone(2)];
+      const empty = (parameter: cdk.CfnParameter) => cdk.Fn.conditionEquals(parameter.valueAsString, '');
+      new cdk.CfnRule(this, 'TwoAvailabilityZones', {
+        assertions: [{
+          assert: cdk.Fn.conditionOr(
+            cdk.Fn.conditionAnd(empty(zones[0]), empty(zones[1])),
+            cdk.Fn.conditionAnd(
+              cdk.Fn.conditionNot(empty(zones[0])),
+              cdk.Fn.conditionNot(empty(zones[1])),
+              cdk.Fn.conditionNot(cdk.Fn.conditionEquals(zones[0].valueAsString, zones[1].valueAsString)),
+            ),
+          ),
+          assertDescription: 'Set both AvailabilityZone1 and AvailabilityZone2, to two different zones, or leave both empty.',
+        }],
+      });
+      const regionDefault = new cdk.CfnCondition(this, 'RegionDefaultZones', { expression: empty(zones[0]) });
+      availabilityZones = zones.map((parameter, index) =>
+        cdk.Fn.conditionIf(regionDefault.logicalId, cdk.Fn.select(index, cdk.Fn.getAzs()), parameter.valueAsString).toString());
+    }
+
     // Public subnets for the tasks (they reach MotherDuck and the model provider directly, with no
     // NAT gateway to pay for) and isolated subnets, with no internet route, for the load balancer.
     const vpc = new ec2.Vpc(this, 'Vpc', {
-      ...(options.availabilityZones?.length ? { availabilityZones: options.availabilityZones } : { maxAzs: 2 }),
+      availabilityZones,
       natGateways: 0,
       subnetConfiguration: [
         { name: 'tasks', subnetType: ec2.SubnetType.PUBLIC, cidrMask: 24 },
@@ -113,7 +160,7 @@ export class DiveChatStack extends cdk.Stack {
       vpc,
       internetFacing: false,
       vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_ISOLATED },
-      idleTimeout: cdk.Duration.seconds(300),
+      idleTimeout: cdk.Duration.seconds(ALB_IDLE_TIMEOUT_SECONDS),
     });
     // CloudFront's VPC origin reaches the load balancer from CloudFront's origin-facing addresses.
     // The load balancer is internal and in subnets without an internet route, so this rule admits
@@ -172,6 +219,7 @@ export class DiveChatStack extends cdk.Stack {
         ...Object.fromEntries(Object.entries(plain).map(([name, parameter]) => [name, parameter.valueAsString])),
         APP_URL: appUrl,
         AUTH_TRUSTED_IP_HEADER: CLIENT_IP_HEADER,
+        KEEP_ALIVE_TIMEOUT: String(APP_KEEP_ALIVE_TIMEOUT_MS),
       },
       secrets: {
         SESSION_SECRET: ecs.Secret.fromSecretsManager(sessionSecret),

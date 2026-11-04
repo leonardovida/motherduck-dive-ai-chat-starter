@@ -31,6 +31,20 @@
       "Type": "String",
       "Default": "",
       "Description": "APP_TITLE: the name in the header. Optional."
+    },
+    "AvailabilityZone1": {
+      "Type": "String",
+      "Default": "",
+      "AllowedPattern": "^([a-z]{2}(-[a-z]+)+-[0-9][a-z])?$",
+      "ConstraintDescription": "must be empty or an Availability Zone name such as us-east-1a.",
+      "Description": "Optional. The first Availability Zone, such as us-east-1a. Set both when one of the Region's first two zones lacks CloudFront VPC origins (docs/deploy.md). Leave both empty to use the first two."
+    },
+    "AvailabilityZone2": {
+      "Type": "String",
+      "Default": "",
+      "AllowedPattern": "^([a-z]{2}(-[a-z]+)+-[0-9][a-z])?$",
+      "ConstraintDescription": "must be empty or an Availability Zone name such as us-east-1a.",
+      "Description": "Optional. The second Availability Zone, such as us-east-1b. Set both when one of the Region's first two zones lacks CloudFront VPC origins (docs/deploy.md). Leave both empty to use the first two."
     }
   },
   "Resources": {
@@ -191,10 +205,18 @@
       "Type": "AWS::EC2::Subnet",
       "Properties": {
         "AvailabilityZone": {
-          "Fn::Select": [
-            0,
+          "Fn::If": [
+            "RegionDefaultZones",
             {
-              "Fn::GetAZs": ""
+              "Fn::Select": [
+                0,
+                {
+                  "Fn::GetAZs": ""
+                }
+              ]
+            },
+            {
+              "Ref": "AvailabilityZone1"
             }
           ]
         },
@@ -263,10 +285,18 @@
       "Type": "AWS::EC2::Subnet",
       "Properties": {
         "AvailabilityZone": {
-          "Fn::Select": [
-            1,
+          "Fn::If": [
+            "RegionDefaultZones",
             {
-              "Fn::GetAZs": ""
+              "Fn::Select": [
+                1,
+                {
+                  "Fn::GetAZs": ""
+                }
+              ]
+            },
+            {
+              "Ref": "AvailabilityZone2"
             }
           ]
         },
@@ -335,10 +365,18 @@
       "Type": "AWS::EC2::Subnet",
       "Properties": {
         "AvailabilityZone": {
-          "Fn::Select": [
-            0,
+          "Fn::If": [
+            "RegionDefaultZones",
             {
-              "Fn::GetAZs": ""
+              "Fn::Select": [
+                0,
+                {
+                  "Fn::GetAZs": ""
+                }
+              ]
+            },
+            {
+              "Ref": "AvailabilityZone1"
             }
           ]
         },
@@ -392,10 +430,18 @@
       "Type": "AWS::EC2::Subnet",
       "Properties": {
         "AvailabilityZone": {
-          "Fn::Select": [
-            1,
+          "Fn::If": [
+            "RegionDefaultZones",
             {
-              "Fn::GetAZs": ""
+              "Fn::Select": [
+                1,
+                {
+                  "Fn::GetAZs": ""
+                }
+              ]
+            },
+            {
+              "Ref": "AvailabilityZone2"
             }
           ]
         },
@@ -765,6 +811,10 @@
               {
                 "Name": "AUTH_TRUSTED_IP_HEADER",
                 "Value": "x-client-ip"
+              },
+              {
+                "Name": "KEEP_ALIVE_TIMEOUT",
+                "Value": "310000"
               }
             ],
             "Essential": true,
@@ -1627,6 +1677,91 @@
           }
         }
       }
+    }
+  },
+  "Rules": {
+    "TwoAvailabilityZones": {
+      "Assertions": [
+        {
+          "Assert": {
+            "Fn::Or": [
+              {
+                "Fn::And": [
+                  {
+                    "Fn::Equals": [
+                      {
+                        "Ref": "AvailabilityZone1"
+                      },
+                      ""
+                    ]
+                  },
+                  {
+                    "Fn::Equals": [
+                      {
+                        "Ref": "AvailabilityZone2"
+                      },
+                      ""
+                    ]
+                  }
+                ]
+              },
+              {
+                "Fn::And": [
+                  {
+                    "Fn::Not": [
+                      {
+                        "Fn::Equals": [
+                          {
+                            "Ref": "AvailabilityZone1"
+                          },
+                          ""
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "Fn::Not": [
+                      {
+                        "Fn::Equals": [
+                          {
+                            "Ref": "AvailabilityZone2"
+                          },
+                          ""
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "Fn::Not": [
+                      {
+                        "Fn::Equals": [
+                          {
+                            "Ref": "AvailabilityZone1"
+                          },
+                          {
+                            "Ref": "AvailabilityZone2"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          "AssertDescription": "Set both AvailabilityZone1 and AvailabilityZone2, to two different zones, or leave both empty."
+        }
+      ]
+    }
+  },
+  "Conditions": {
+    "RegionDefaultZones": {
+      "Fn::Equals": [
+        {
+          "Ref": "AvailabilityZone1"
+        },
+        ""
+      ]
     }
   },
   "Outputs": {
