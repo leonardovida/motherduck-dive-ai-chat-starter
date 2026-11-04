@@ -52,7 +52,10 @@ Optional. Setting `MOTHERDUCK_APP_TOKEN` switches from the shared password to pe
 | `SSO_TRUSTED` | No | `true` trusts the generic OpenID Connect provider's emails without an `email_verified` claim, for linking and account creation. Use it only for your own directory, where nobody can register with an email they choose. | Your choice. |
 | `AUTH_NEW_ACCOUNT_ACCESS` | No | `all` (the default) gives accounts that SSO creates every Dive and chat. `none` starts them with nothing until an administrator grants access. | Your choice. |
 | `AUTH_DOMAIN_GROUPS` | No | Puts people whose verified email is at a domain into a group when SSO creates their account, for example `acme.com=Acme, globex.com=Globex`. Those domains may create accounts. See [Who single sign-on lets in](accounts.md#who-single-sign-on-lets-in). | Your domains and the group names in the admin portal. |
-| `CRON_SECRET` | No | Lets the daily access check run (`/api/cron/access-sync`), which puts MotherDuck grants right after a failed sync or a change made outside the app. | Any random string of 16 or more characters. Vercel sends it to scheduled routes automatically. |
+| `CRON_SECRET` | No | Lets the scheduled routes run: the daily access check (`/api/cron/access-sync`), which puts MotherDuck grants right after a failed sync or a change made outside the app, and the weekly digest (`/api/cron/digest`). | Any random string of 16 or more characters. Vercel sends it to scheduled routes automatically. |
+| `DIGEST_WEBHOOK_URL` | No | A Slack incoming webhook (`https`) that receives a weekly summary of chat questions, including question text. See [Weekly digest](accounts.md#weekly-digest). | Slack's incoming webhooks page for the channel. Treat it as a secret. |
+| `MODEL_PRICES` | No | Prices per million input and output tokens for each tier, for example `luna:0.25/2,sol:1.25/10`. Adds an estimated cost to the **Questions** tab. See [Estimate the cost](accounts.md#estimate-the-cost). | Your model provider's pricing page. |
+| `MODEL_PRICE_CURRENCY` | No | The three-letter currency shown with the estimated cost. The default is `USD`. | Your provider's billing currency. |
 
 ### AI chat
 

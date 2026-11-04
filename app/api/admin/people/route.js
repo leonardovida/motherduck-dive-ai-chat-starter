@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { budgets } from '../../../../lib/budgets.mjs';
 import { NO_STORE, failure, requirePeopleManager } from '../../../../lib/admin-api.mjs';
 import { createPeopleService, MAX_IMPORT } from '../../../../lib/people.mjs';
 import { listDives, publicDive } from '../../../../lib/dives.mjs';
@@ -31,7 +32,12 @@ export async function GET(request) {
     // Whether chat really works for a group's members: a group with a service account needs
     // the admin token to mint its chat tokens, and the Dive's chat database among its own.
     const chatReady = group => group.chat && (!group.serviceAccount || (adminConfigured() && configured.some(dive => (group.dives === '*' || group.dives.includes(dive.key)) && diveIdentity(dive, { dataGroup: group }).chat)));
-    result.groups = result.groups.map(group => ({ ...group, chatReady: chatReady(group) }));
+    // Tokens each group used this month, for groups with a monthly allowance.
+    let usage = new Map();
+    if (result.groups.some(group => group.monthlyTokenCap)) {
+      try { usage = await budgets().usage({ fresh: true }); } catch (error) { console.error('budget_usage_failed', error?.code ?? error?.name); }
+    }
+    result.groups = result.groups.map(group => ({ ...group, chatReady: chatReady(group), ...(group.monthlyTokenCap ? { tokensThisMonth: usage.get(group.id) ?? 0 } : {}) }));
     return Response.json({ ...result, dives, scope: scope.all ? 'admin' : 'manager', me: viewer.id, maxImport: MAX_IMPORT, mdAutomatic: adminConfigured() }, { headers: NO_STORE });
   } catch (error) {
     console.error('people_list_failed', error?.code ?? error?.name);

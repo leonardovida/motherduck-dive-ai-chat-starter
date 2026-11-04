@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createConversationStore, failedText, recordingEnabled, retentionDays, toolReceipts } from '../lib/conversations.mjs';
+import { conversationOwner, createConversationStore, failedText, recordingEnabled, retentionDays, toolReceipts } from '../lib/conversations.mjs';
 import { createInsights, fillDays, insightFilter } from '../lib/insights.mjs';
 import { createStatements } from '../lib/app-db-schema.mjs';
 import { authOptions } from '../lib/auth.mjs';
@@ -10,7 +10,7 @@ function fakeQuery(existing = null) {
   const calls = [];
   const query = async (text, values = []) => {
     calls.push({ text, values });
-    if (text.startsWith('SELECT user_id, dive_key FROM chat_conversation')) return existing ? [existing] : [];
+    if (text.startsWith('SELECT user_id, dive_key, session_id FROM chat_conversation')) return existing ? [existing] : [];
     return [];
   };
   return { calls, query };
@@ -92,12 +92,12 @@ test('a question keeps the asker\'s groups and Dive state; an answer links to it
 
 test('feedback is only set on an answer in the viewer\'s own conversation', async () => {
   const calls = [];
-  const query = async (text, values) => { calls.push({ text, values }); return values[4] === 'user-1' ? [{ id: values[2] }] : []; };
+  const query = async (text, values) => { calls.push({ text, values }); return values[6] === 'user-1' ? [{ id: values[4] }] : []; };
   const store = createConversationStore(query);
   assert.equal(await store.setFeedback({ viewer, conversationId: 'conv-12345678', answerId: 'answer-12345', value: -1 }), true);
   assert.match(calls[0].text, /role = 'assistant'/);
-  assert.match(calls[0].text, /SELECT id FROM chat_conversation WHERE user_id = \$5/);
-  assert.deepEqual([calls[0].values[0], ...calls[0].values.slice(2)], [-1, 'answer-12345', 'conv-12345678', 'user-1']);
+  assert.match(calls[0].text, /SELECT id FROM chat_conversation WHERE user_id = \$7\)/);
+  assert.deepEqual([calls[0].values[0], ...calls[0].values.slice(2)], [-1, null, null, 'answer-12345', 'conv-12345678', 'user-1']);
   assert.equal(await store.setFeedback({ viewer: { id: 'someone-else' }, conversationId: 'conv-12345678', answerId: 'answer-12345', value: 1 }), false);
   // Clearing stores no rating and no time.
   await store.setFeedback({ viewer, conversationId: 'conv-12345678', answerId: 'answer-12345', value: 0 });
@@ -174,7 +174,63 @@ test('listing filters with parameters and escapes LIKE wildcards; bad ids are re
   const store = createConversationStore(query);
   await store.list({ userId: 'user-1', diveKey: 'overview', search: '50%_off', limit: 1000 });
   assert.deepEqual(calls[0].values, ['user-1', 'overview', '%50\\%\\_off%', 200, 0]);
-  assert.match(calls[0].text, /c\.user_id = \$1 AND c\.dive_key = \$2 AND c\.title ILIKE \$3/);
+  assert.match(calls[0].text, /c\.user_id = \$1 AND c\.dive_key = \$2 AND \(c\.title ILIKE \$3 .* s\.role = 'user' AND s\.content ILIKE \$3/);
   assert.equal(await store.get("x'; DROP TABLE"), null);
   assert.equal(await store.remove('short'), false);
+});
+
+test('a thumbs down keeps its reason and note; other ratings and unknown reasons do not', async () => {
+  const calls = [];
+  const query = async (text, values) => { calls.push({ text, values }); return [{ id: 'x' }]; };
+  const store = createConversationStore(query);
+  const base = { viewer, conversationId: 'conv-12345678', answerId: 'answer-12345' };
+  await store.setFeedback({ ...base, value: -1, reason: 'wrong_numbers', note: '  March is off by 10%  ' });
+  assert.deepEqual(calls[0].values.slice(2, 4), ['wrong_numbers', 'March is off by 10%']);
+  await store.setFeedback({ ...base, value: 1, reason: 'wrong_numbers', note: 'x' });
+  assert.deepEqual(calls[1].values.slice(2, 4), [null, null]);
+  assert.equal(await store.setFeedback({ ...base, value: -1, reason: 'DROP TABLE' }), false);
+  assert.equal(calls.length, 2);
+});
+
+test('in a public demo a conversation also belongs to the visitor session', async () => {
+  const existing = { user_id: 'user-1', dive_key: 'overview', session_id: 'session-a' };
+  const { calls, query } = fakeQuery(existing);
+  const store = createConversationStore(query);
+  // Another visitor on the shared account cannot continue it.
+  const id = await store.startTurn({ conversationId: 'conv-12345678', viewer, diveKey: 'overview', question: 'Hi', sessionId: 'session-b' });
+  assert.notEqual(id, 'conv-12345678');
+  assert.equal(calls.find(call => call.text.startsWith('INSERT INTO chat_conversation')).values[6], 'session-b');
+  // Nor rate its answers.
+  calls.length = 0;
+  await store.setFeedback({ viewer, conversationId: 'conv-12345678', answerId: 'answer-12345', value: 1, sessionId: 'session-b' });
+  assert.match(calls[0].text, /user_id = \$7 AND session_id = \$8/);
+  assert.equal(calls[0].values[7], 'session-b');
+  // Outside a demo the session is not part of ownership.
+  assert.deepEqual(conversationOwner({ id: 'u', sessionId: 's' }), { userId: 'u', sessionId: null });
+  assert.deepEqual(conversationOwner({ id: 'u', sessionId: 's' }, true), { userId: 'u', sessionId: 's' });
+});
+
+test('a person reads only their own conversation; deleting a person can remove all of theirs', async () => {
+  const rows = { 'conv-12345678': { id: 'conv-12345678', user_id: 'user-1', session_id: 'session-a' } };
+  const calls = [];
+  const query = async (text, values) => {
+    calls.push({ text, values });
+    if (text.startsWith('SELECT id, user_id')) return rows[values[0]] ? [rows[values[0]]] : [];
+    if (text.startsWith('DELETE FROM chat_conversation WHERE user_id')) return [{ id: 'a' }, { id: 'b' }];
+    return [];
+  };
+  const store = createConversationStore(query);
+  assert.ok(await store.getOwn('conv-12345678', { userId: 'user-1', sessionId: null }));
+  assert.equal(await store.getOwn('conv-12345678', { userId: 'user-2', sessionId: null }), null);
+  assert.equal(await store.getOwn('conv-12345678', { userId: 'user-1', sessionId: 'session-b' }), null);
+  assert.equal(await store.removeForUser('user-1'), 2);
+  assert.match(calls.at(-2).text, /DELETE FROM chat_message WHERE conversation_id IN \(SELECT id FROM chat_conversation WHERE user_id = \$1\)/);
+  assert.equal(await store.removeForUser(''), 0);
+});
+
+test('a question records group ids beside group names', async () => {
+  const { calls, query } = fakeQuery();
+  await createConversationStore(query).startTurn({ conversationId: 'conv-12345678', viewer: { ...viewer, groups: [{ id: 'g1', name: 'Acme' }] }, diveKey: 'overview', question: 'Why?' });
+  const insert = calls.find(call => call.text.startsWith('INSERT INTO chat_message'));
+  assert.deepEqual(insert.values.slice(5, 7), ['["Acme"]', '["g1"]']);
 });

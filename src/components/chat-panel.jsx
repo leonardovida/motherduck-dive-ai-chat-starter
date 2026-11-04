@@ -42,6 +42,8 @@ import {
   Copy,
   Database,
   Eye,
+  History,
+  Plus,
   RotateCcw,
   Square,
   TableProperties,
@@ -51,7 +53,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./chat-panel.css";
 import { prepareChatHistory } from "@/lib/chat-history.mjs";
 
@@ -171,6 +173,23 @@ const COPY = {
   feedbackSaved: "Thanks. Your rating was saved.",
   feedbackCleared: "Rating removed.",
   feedbackFailed: "The rating could not be saved.",
+  reasonTitle: "What went wrong? (optional)",
+  reasons: { wrong_numbers: "Wrong numbers", misunderstood: "Misunderstood the question", missing_data: "Data is missing", too_slow: "Too slow", other: "Something else" },
+  reasonNote: "Anything else? (optional)",
+  reasonSend: "Send",
+  reasonSkip: "Skip",
+  reasonSaved: "Thanks. This helps improve the answers.",
+  budget: "Your group has used this month's AI chat allowance. It resets on {date}. An administrator can raise it.",
+  history: "Past conversations",
+  historyBack: "Back to the conversation",
+  newConversation: "New conversation",
+  historySearch: "Search your questions",
+  historyEmpty: "No saved conversations for this Dive yet.",
+  historyFailed: "Your conversations could not be loaded. Try again.",
+  historyMessages: ["1 message", "{n} messages"],
+  deleteConversation: "Delete conversation",
+  confirmDelete: "Confirm delete",
+  loading: "Loading…",
   modelHint: { auto: "Picks per question", luna: "Fast", sol: "Balanced", astra: "Deep analysis" },
 };
 
@@ -335,7 +354,7 @@ function CopyAnswer({ text }) {
 const RATINGS = new Map();
 
 // Thumbs up or down on a saved answer. Pressing the active one again clears it.
-function RateAnswer({ conversationId, answerId }) {
+function RateAnswer({ conversationId, answerId, onRated }) {
   const [value, setValue] = useState(() => RATINGS.get(answerId) ?? 0);
   const [status, setStatus] = useState("");
   const rate = async (pressed) => {
@@ -348,6 +367,7 @@ function RateAnswer({ conversationId, answerId }) {
         if (response.ok) {
           RATINGS.set(answerId, next);
           setStatus(next ? COPY.feedbackSaved : COPY.feedbackCleared);
+          onRated?.(next);
           return;
         }
         // The answer is saved a moment after it finishes, so a quick click may arrive first.
@@ -371,6 +391,110 @@ function RateAnswer({ conversationId, answerId }) {
   );
 }
 
+// After a thumbs down, an optional reason and note. Sending updates the same rating.
+function FeedbackReason({ conversationId, answerId, onDone }) {
+  const [reason, setReason] = useState("");
+  const [note, setNote] = useState("");
+  const [state, setState] = useState("");
+  const send = async (event) => {
+    event.preventDefault();
+    if (!reason && !note.trim()) return onDone();
+    setState("saving");
+    try {
+      const response = await fetch("/api/chat/feedback", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ conversationId, answerId, value: -1, reason: reason || null, note: note.trim() || null }) });
+      setState(response.ok ? "saved" : "failed");
+      if (response.ok) setTimeout(onDone, 1600);
+    } catch { setState("failed"); }
+  };
+  if (state === "saved") return <p className="chat-reason-saved" role="status">{COPY.reasonSaved}</p>;
+  return (
+    <form className="chat-reason" onSubmit={send}>
+      <fieldset>
+        <legend>{COPY.reasonTitle}</legend>
+        <div className="chat-reason-options">
+          {Object.entries(COPY.reasons).map(([key, label]) => (
+            <label key={key} className="chat-reason-option"><input type="radio" name={`reason-${answerId}`} value={key} checked={reason === key} onChange={() => setReason(key)} />{label}</label>
+          ))}
+        </div>
+      </fieldset>
+      <label className="chat-reason-note">
+        <span>{COPY.reasonNote}</span>
+        <textarea rows={2} maxLength={500} value={note} onChange={(event) => setNote(event.target.value)} />
+      </label>
+      {state === "failed" && <p className="chat-rating-status" role="status">{COPY.feedbackFailed}</p>}
+      <div className="chat-reason-actions">
+        <Button type="submit" size="sm" disabled={state === "saving"}>{COPY.reasonSend}</Button>
+        <Button type="button" size="sm" variant="ghost" onClick={onDone}>{COPY.reasonSkip}</Button>
+      </div>
+    </form>
+  );
+}
+
+// The person's own saved conversations for this Dive. Opening one continues it.
+function ConversationHistory({ diveKey, current, demo, onOpen, onNew }) {
+  const [query, setQuery] = useState("");
+  const [state, setState] = useState({ loading: true, items: [], error: false });
+  const [confirming, setConfirming] = useState(null);
+  const [opening, setOpening] = useState(null);
+  const load = useCallback(async (search) => {
+    setState((value) => ({ ...value, loading: true, error: false }));
+    try {
+      const params = new URLSearchParams({ dive: diveKey, ...(search ? { q: search } : {}) });
+      const response = await fetch(`/api/chat/conversations?${params}`, { credentials: "same-origin", cache: "no-store" });
+      if (!response.ok) throw new Error(String(response.status));
+      setState({ loading: false, items: (await response.json()).conversations, error: false });
+    } catch { setState({ loading: false, items: [], error: true }); }
+  }, [diveKey]);
+  useEffect(() => { const timer = setTimeout(() => load(query.trim()), 250); return () => clearTimeout(timer); }, [load, query]);
+  const open = async (id) => {
+    setOpening(id);
+    try {
+      const response = await fetch(`/api/chat/conversations/${encodeURIComponent(id)}`, { credentials: "same-origin", cache: "no-store" });
+      if (!response.ok) throw new Error(String(response.status));
+      onOpen((await response.json()).conversation);
+    } catch { setState((value) => ({ ...value, error: true })); }
+    finally { setOpening(null); }
+  };
+  const remove = async (id) => {
+    setConfirming(null);
+    const response = await fetch(`/api/chat/conversations/${encodeURIComponent(id)}`, { method: "DELETE", credentials: "same-origin" }).catch(() => null);
+    if (response?.ok) setState((value) => ({ ...value, items: value.items.filter((item) => item.id !== id) }));
+    else setState((value) => ({ ...value, error: true }));
+  };
+  return (
+    <section className="chat-history" aria-label={COPY.history}>
+      <div className="chat-history-tools">
+        <input type="search" className="chat-history-search" aria-label={COPY.historySearch} placeholder={COPY.historySearch} value={query} onChange={(event) => setQuery(event.target.value)} />
+        <Button type="button" size="sm" variant="outline" onClick={onNew}><Plus data-icon="inline-start" aria-hidden="true" />{COPY.newConversation}</Button>
+      </div>
+      {state.error && <p className="chat-request-error" role="alert">{COPY.historyFailed}</p>}
+      {!state.loading && !state.error && !state.items.length && <p className="chat-history-empty">{COPY.historyEmpty}</p>}
+      <ul className="chat-history-list" aria-busy={state.loading}>
+        {state.items.map((item) => (
+          <li key={item.id} className={item.id === current ? "chat-history-item is-current" : "chat-history-item"}>
+            <button type="button" className="chat-history-open" onClick={() => open(item.id)} aria-current={item.id === current || undefined} disabled={opening === item.id}>
+              <span className="chat-history-title">{item.title || "—"}</span>
+              <span className="chat-history-meta">{opening === item.id ? COPY.loading : `${new Date(item.updatedAt).toLocaleString()} · ${(item.messageCount === 1 ? COPY.historyMessages[0] : COPY.historyMessages[1]).replace("{n}", item.messageCount)}`}</span>
+            </button>
+            {!demo && (confirming === item.id
+              ? <Button type="button" size="sm" variant="destructive" onClick={() => remove(item.id)}>{COPY.confirmDelete}</Button>
+              : <Button type="button" size="icon-sm" variant="ghost" onClick={() => setConfirming(item.id)} aria-label={`${COPY.deleteConversation}: ${item.title}`} title={COPY.deleteConversation}><Trash2 aria-hidden="true" /></Button>)}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+// Saved messages in the shape useChat keeps, so a past conversation continues where it stopped.
+function savedMessages(conversation) {
+  return conversation.messages.map((message) => {
+    if (message.role !== "assistant") return { id: message.id, role: "user", parts: [{ type: "text", text: message.text }] };
+    if (message.feedback) RATINGS.set(message.id, message.feedback);
+    return { id: message.id, role: "assistant", parts: [{ type: "text", text: message.text }], metadata: { model: message.model || undefined, conversationId: conversation.id, answerId: message.id } };
+  });
+}
+
 // The tier of the latest answer, so a short follow-up can keep it when routing automatically.
 function previousTier(messages) {
   const tier = messages.findLast((message) => message.role === "assistant" && message.metadata?.model)?.metadata.model;
@@ -378,6 +502,7 @@ function previousTier(messages) {
 }
 
 function ChatMessage({ message, working, showModel, canRate }) {
+  const [askReason, setAskReason] = useState(false);
   const text = messageText(message);
   const tier = MODEL_NAMES[message.metadata?.model];
   // Auto answers always say which tier answered and why; manual picks only when several were used.
@@ -397,16 +522,17 @@ function ChatMessage({ message, working, showModel, canRate }) {
         {text && !working && (
           <MessageActions className="chat-message-actions">
             <CopyAnswer text={text} />
-            {canRate && message.metadata?.answerId && message.metadata?.conversationId && <RateAnswer conversationId={message.metadata.conversationId} answerId={message.metadata.answerId} />}
+            {canRate && message.metadata?.answerId && message.metadata?.conversationId && <RateAnswer conversationId={message.metadata.conversationId} answerId={message.metadata.answerId} onRated={(value) => setAskReason(value === -1)} />}
             {model && <span className="chat-model-tag" title={message.metadata?.routeReason || undefined}>{model}</span>}
           </MessageActions>
         )}
+        {askReason && <FeedbackReason conversationId={message.metadata.conversationId} answerId={message.metadata.answerId} onDone={() => setAskReason(false)} />}
       </MessageContent>
     </Message>
   );
 }
 
-function ChatHeader({ onClear, onClose, canClear }) {
+function ChatHeader({ onClear, onClose, canClear, onHistory, historyOpen }) {
   return (
     <header className="chat-panel-header">
       <div>
@@ -414,6 +540,11 @@ function ChatHeader({ onClear, onClose, canClear }) {
         <p>{COPY.subtitle}</p>
       </div>
       <div className="chat-panel-header-actions">
+        {onHistory && (
+          <Button type="button" variant={historyOpen ? "secondary" : "ghost"} size="icon-sm" onClick={onHistory} aria-pressed={historyOpen} aria-label={COPY.history} title={historyOpen ? COPY.historyBack : COPY.history}>
+            <History aria-hidden="true" />
+          </Button>
+        )}
         {onClear && (
           <Button type="button" variant="ghost" size="icon-sm" onClick={onClear} disabled={!canClear} aria-label={COPY.clear} title={COPY.clear}>
             <Trash2 aria-hidden="true" />
@@ -499,6 +630,7 @@ function ChatSession({ dive, state, ready, frameStatus, onClose }) {
     stop();
   }, [stop]);
   const busy = status === "submitted" || status === "streaming";
+  const [showHistory, setShowHistory] = useState(false);
   const canAsk = ready && Boolean(diveKey);
   const waiting = frameStatus === 'error' ? COPY.unavailable : frameStatus === 'configuration' ? COPY.connect : COPY.waiting;
   const ask = (text) => {
@@ -511,6 +643,13 @@ function ChatSession({ dive, state, ready, frameStatus, onClose }) {
     setMessages([]);
     SESSION_CONVERSATIONS.delete(diveKey);
     conversationId.current = conversationIdFor(diveKey);
+  };
+  const openSaved = (conversation) => {
+    if (busy) stop();
+    setMessages(savedMessages(conversation));
+    conversationId.current = conversation.id;
+    SESSION_CONVERSATIONS.set(diveKey, conversation.id);
+    setShowHistory(false);
   };
   const chooseModel = (value) => {
     if (!catalog?.models.includes(value)) return;
@@ -528,11 +667,21 @@ function ChatSession({ dive, state, ready, frameStatus, onClose }) {
   const unavailable = Array.isArray(catalog?.unavailable) ? catalog.unavailable : [];
   const recordingNotice = !catalog?.recording ? "" : !catalog.publicDemo ? COPY.recording : catalog.retentionDays ? COPY.demoRetention.replace("{days}", catalog.retentionDays) : COPY.demoRecording;
   const rateLimited = String(error?.message || "").includes("chat_rate_limited");
+  const budgetReached = String(error?.message || "").includes("chat_budget_reached");
+  const budgetMessage = () => {
+    let resetsAt = null;
+    try { resetsAt = JSON.parse(error.message).resetsAt; } catch { /* the date is optional */ }
+    return COPY.budget.replace("{date}", resetsAt ? new Date(resetsAt).toLocaleDateString(undefined, { month: "long", day: "numeric", timeZone: "UTC" }) : "the 1st");
+  };
 
   return (
     <aside className="chat-panel" aria-label={COPY.title}>
-      <ChatHeader onClear={clear} onClose={onClose} canClear={messages.length > 0 || busy} />
+      <ChatHeader onClear={clear} onClose={onClose} canClear={messages.length > 0 || busy} onHistory={catalog?.recording && diveKey ? () => setShowHistory((value) => !value) : undefined} historyOpen={showHistory} />
 
+      {showHistory ? (
+        <ConversationHistory diveKey={diveKey} current={messages.length ? conversationId.current : null} demo={Boolean(catalog?.publicDemo)} onOpen={openSaved} onNew={() => { clear(); setShowHistory(false); }} />
+      ) : (
+      <>
       <Conversation className="chat-conversation">
         <ConversationContent data-slot="conversation-content">
           {!messages.length && <ConversationEmptyState title={canAsk ? COPY.empty : waiting} description="" />}
@@ -540,7 +689,7 @@ function ChatSession({ dive, state, ready, frameStatus, onClose }) {
             <ChatMessage key={message.id} message={message} working={busy && index === messages.length - 1} showModel={usedModels.size > 1} canRate={Boolean(catalog?.recording)} />
           ))}
           {awaitingFirstToken && <p className="chat-tool-pending" role="status">{COPY.thinking}</p>}
-          {error && <p className="chat-request-error" role="alert">{rateLimited ? COPY.rateLimited : String(error?.message || "").includes("chat_not_allowed") ? COPY.deniedBody : COPY.error}</p>}
+          {error && <p className="chat-request-error" role="alert">{rateLimited ? COPY.rateLimited : budgetReached ? budgetMessage() : String(error?.message || "").includes("chat_not_allowed") ? COPY.deniedBody : COPY.error}</p>}
           {followUps.length > 0 && canAsk && (
             <div className="chat-follow-ups">
               <span className="chat-tool-label">{COPY.followUps}</span>
@@ -562,9 +711,11 @@ function ChatSession({ dive, state, ready, frameStatus, onClose }) {
           ))}
         </Suggestions>
       )}
+      </>
+      )}
 
-      <div className="chat-panel-footer">
-        {status === "error" && !rateLimited && (
+      <div className="chat-panel-footer" style={showHistory ? { display: "none" } : undefined}>
+        {status === "error" && !rateLimited && !budgetReached && (
           <Button type="button" variant="ghost" size="sm" onClick={() => regenerate()}>
             <RotateCcw data-icon="inline-start" aria-hidden="true" />{COPY.retry}
           </Button>

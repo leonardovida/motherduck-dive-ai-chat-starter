@@ -89,6 +89,10 @@ const COPY = {
     demo_read_only: "this is not available in a public demo",
     conversations_unavailable: "the app database did not answer. Try again",
     insights_need_migration: "run npm run db:migrate to add question tracking to the app database",
+    topics_need_model: "grouping into topics needs an AI model to be configured",
+    topics_failed: "the AI model could not group the questions. Try again",
+    digest_not_configured: "set DIGEST_WEBHOOK_URL first",
+    digest_failed: "the webhook did not accept the digest. Check DIGEST_WEBHOOK_URL",
   },
   everyone: "Everyone",
   banned: "Disabled",
@@ -119,7 +123,7 @@ const COPY = {
   fromGroups: "Also from groups: {groups}",
   noUsers: "No people yet.",
   failed: "That did not work: {reason}",
-  search: "Search titles",
+  search: "Search questions",
   filterPeople: "Find people",
   allPeople: "All people",
   allDivesFilter: "All Dives",
@@ -141,6 +145,30 @@ const COPY = {
   notHelpful: "Rated not helpful",
   askedFrom: "Groups: {groups}",
   askedWith: "Dive state: {state}",
+  topicLabel: "Topic: {topic}",
+  feedbackReasons: { wrong_numbers: "Wrong numbers", misunderstood: "Misunderstood the question", missing_data: "Data is missing", too_slow: "Too slow", other: "Something else" },
+  topics: "Topics",
+  topicsHint: "Questions grouped by subject. Grouping uses the AI model on questions that have no topic yet.",
+  groupTopics: "Group into topics",
+  groupingTopics: "Grouping…",
+  unclassified: ["1 question has no topic yet.", "{n} questions have no topic yet."],
+  topicsDone: "Grouped {n} questions.",
+  topicsNeedModel: "Grouping into topics needs an AI model to be configured.",
+  noTopics: "No topics yet. Select Group into topics.",
+  gaps: "Data people asked for but could not get",
+  gapsHint: "Answers that said the data needed was not available. Useful when deciding what to add to a Dive.",
+  noGaps: "No answer in this period said the data was missing. Questions are checked when they are grouped into topics.",
+  tileCost: "Estimated cost",
+  tileCostDetail: "from MODEL_PRICES",
+  unpriced: "no price for {tiers}",
+  sendDigest: "Send digest now",
+  digestSent: "The digest was posted.",
+  managerQuestions: "Questions asked by members of {groups}. Conversations themselves are visible to administrators only.",
+  allowance: "Monthly AI chat allowance in tokens (optional)",
+  allowanceHint: "Once the group's members have used this many tokens in a calendar month (UTC), they cannot ask more until the 1st. Administrators are not limited. Needs saved conversations. Leave empty for no limit.",
+  allowanceUsed: "AI chat this month: {used} of {cap} tokens",
+  allowanceReached: "Allowance used up",
+  purgeConversations: "Also delete their saved conversations",
   questionsTitle: "Questions asked in chat",
   questionsBody: "What people ask, how each answer went and how they rated it. Every question is saved in the app database. Query the chat_questions view in MotherDuck for anything this page does not show.",
   periods: [[7, "Last 7 days"], [30, "Last 30 days"], [90, "Last 90 days"], [365, "Last 12 months"]],
@@ -224,7 +252,7 @@ const COPY = {
     "person.role_changed": "Changed the role of", "person.removed": "Deleted", "person.signed_out": "Signed out", "person.impersonated": "Signed in as", "person.updated": "Changed the details of",
     "group.created": "Created group", "group.updated": "Changed group", "group.deleted": "Deleted group", "group.member_added": "Added to a group",
     "group.member_removed": "Removed from a group", "group.service_account_created": "Created the service account of",
-    "access_sync.run": "Synced MotherDuck access", "access_sync.confirmed": "Marked the MotherDuck SQL as done", "conversation.deleted": "Deleted a conversation", "questions.exported": "Exported the chat questions",
+    "access_sync.run": "Synced MotherDuck access", "access_sync.confirmed": "Marked the MotherDuck SQL as done", "conversation.deleted": "Deleted a conversation", "questions.exported": "Exported the chat questions", "questions.classified": "Grouped questions into topics", "questions.digest_sent": "Sent the questions digest",
   },
   grantee: "Who",
   share: "Share",
@@ -410,7 +438,7 @@ function AddPeople({ dives, groups, scope, maxImport = 200, onCreated }) {
   const pasted = form.mode === "list" ? parseList(form.list).length : 0;
   return (
     <Card>
-      <CardHeader><CardTitle>{COPY.addPeople}</CardTitle><CardDescription>{COPY.addPeopleBody}</CardDescription></CardHeader>
+      <CardHeader><CardTitle role="heading" aria-level={2}>{COPY.addPeople}</CardTitle><CardDescription>{COPY.addPeopleBody}</CardDescription></CardHeader>
       <CardContent>
         <form className="grid gap-4 md:grid-cols-2" onSubmit={submit} noValidate>
           <div className="flex gap-1 md:col-span-2" role="group" aria-label={COPY.addPeople}>
@@ -495,6 +523,7 @@ function UserRow({ user, dives, groups, grants, scope, self, onChanged }) {
   const [access, setAccess] = React.useState(accessOf(user));
   const [mdUser, setMdUser] = React.useState(user.motherduckUser || "");
   const [link, setLink] = React.useState(null);
+  const [purge, setPurge] = React.useState(false);
   const [state, setState] = React.useState({ busy: false, message: "", tone: "error" });
   const isAdmin = String(user.role).split(",").includes("admin");
   const name = personName(user);
@@ -543,7 +572,12 @@ function UserRow({ user, dives, groups, grants, scope, self, onChanged }) {
             {!admin && !self && memberships.map(item => (
               <WriteButton key={item.id} size="sm" variant="ghost" disabled={state.busy} aria-label={label(fill(COPY.removeFromGroup, { group: item.group.name }))} onClick={() => (reason ? explain() : run(() => api(`/api/admin/groups/${encodeURIComponent(item.id)}/members?user=${encodeURIComponent(user.id)}`, { method: "DELETE" })))}><UserMinus data-icon="inline-start" aria-hidden="true" />{fill(COPY.removeFromGroup, { group: item.group.name })}</WriteButton>
             ))}
-            {admin && !self && <WriteButton size="sm" variant={mode === "remove" ? "destructive" : "ghost"} disabled={state.busy} aria-label={label(mode === "remove" ? COPY.confirmRemove : COPY.remove)} onClick={confirmFirst("remove", () => run(() => unwrap(authClient.admin.removeUser({ userId: user.id }))))}><Trash2 data-icon="inline-start" aria-hidden="true" />{mode === "remove" ? COPY.confirmRemove : COPY.remove}</WriteButton>}
+            {admin && !self && <WriteButton size="sm" variant={mode === "remove" ? "destructive" : "ghost"} disabled={state.busy} aria-label={label(mode === "remove" ? COPY.confirmRemove : COPY.remove)} onClick={confirmFirst("remove", () => run(async () => {
+              // Conversations go first, so a failure leaves the account in place to try again.
+              if (purge) await api(`/api/admin/users/${encodeURIComponent(user.id)}/conversations`, { method: "DELETE" });
+              await unwrap(authClient.admin.removeUser({ userId: user.id }));
+            }))}><Trash2 data-icon="inline-start" aria-hidden="true" />{mode === "remove" ? COPY.confirmRemove : COPY.remove}</WriteButton>}
+            {mode === "remove" && <label className="flex items-center gap-2 text-sm"><input type="checkbox" className="size-4 accent-primary" checked={purge} onChange={e => setPurge(e.target.checked)} />{COPY.purgeConversations}</label>}
             {["role", "disable", "remove"].includes(mode) && <Button size="sm" variant="ghost" onClick={() => setMode(null)}>{COPY.cancel}</Button>}
           </span>
         )}
@@ -587,14 +621,14 @@ function UsersTab({ data, grants, reload, loading }) {
     <div className="grid gap-6">
       {data.scope === "manager" && (
         <Card>
-          <CardHeader><CardTitle>{COPY.managerTitle}</CardTitle><CardDescription>{fill(COPY.managerBody, { groups: data.groups.map(group => group.name).join(", ") })}</CardDescription></CardHeader>
+          <CardHeader><CardTitle role="heading" aria-level={2}>{COPY.managerTitle}</CardTitle><CardDescription>{fill(COPY.managerBody, { groups: data.groups.map(group => group.name).join(", ") })}</CardDescription></CardHeader>
           <CardContent><ul className="grid gap-1 text-sm">{data.groups.map(group => <li key={group.id}>{fill(COPY.managerGroupAccess, { group: group.name, dives: diveSummary(data.dives, group), chat: group.chatReady ? COPY.chatOn : COPY.chatOff })}</li>)}</ul></CardContent>
         </Card>
       )}
       <AddPeople dives={data.dives} groups={data.groups} scope={data.scope} maxImport={data.maxImport} onCreated={reload} />
       <Card>
         <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2">
-          <CardTitle>{COPY.users}</CardTitle>
+          <CardTitle role="heading" aria-level={2}>{COPY.users}</CardTitle>
           <div className="flex flex-wrap items-center gap-2">
             <div className="relative"><Search className="absolute left-2 top-2.5 size-4 text-muted-foreground" aria-hidden="true" /><Input type="search" className="h-9 w-48 pl-8" aria-label={COPY.filterPeople} placeholder={COPY.filterPeople} value={filter} onChange={e => setFilter(e.target.value)} /></div>
             <Button size="sm" variant="ghost" onClick={exportCsv} disabled={!data.users.length}><Download data-icon="inline-start" aria-hidden="true" />{COPY.exportPeople}</Button>
@@ -637,12 +671,13 @@ function ResourceEditor({ dives, value, onChange }) {
 }
 
 function GroupForm({ dives, group, mdAutomatic, onSaved, onCancel }) {
-  const [form, setForm] = React.useState(() => ({ name: group?.name || "", description: group?.description || "", access: group ? { dives: group.dives, chat: group.chat } : { dives: [], chat: true }, serviceAccount: group?.serviceAccount || "", resources: group?.resources || {}, createAccount: true }));
+  const [form, setForm] = React.useState(() => ({ name: group?.name || "", description: group?.description || "", access: group ? { dives: group.dives, chat: group.chat } : { dives: [], chat: true }, serviceAccount: group?.serviceAccount || "", resources: group?.resources || {}, createAccount: true, cap: group?.monthlyTokenCap ? String(group.monthlyTokenCap) : "" }));
   const [state, setState] = React.useState({ busy: false, message: "", tone: "error" });
   const { reason, explain } = React.useContext(ReadOnly);
   const set = (key, value) => setForm(current => ({ ...current, [key]: value }));
   const granted = form.access.dives === "*" ? dives : dives.filter(dive => form.access.dives.includes(dive.key));
-  const body = () => JSON.stringify({ name: form.name, description: form.description, dives: form.access.dives, chat: form.access.chat, serviceAccount: form.serviceAccount.trim(),
+  const cap = form.cap.replace(/[\s,_.]/g, "");
+  const body = () => JSON.stringify({ name: form.name, description: form.description, dives: form.access.dives, chat: form.access.chat, serviceAccount: form.serviceAccount.trim(), monthlyTokenCap: cap ? Number(cap) : null,
     resources: Object.fromEntries(Object.entries(form.resources).map(([key, list]) => [key, list.filter(item => item.alias.trim() && item.url.trim()).map(item => ({ alias: item.alias.trim(), url: item.url.trim() }))])) });
   const submit = async event => {
     event.preventDefault();
@@ -675,6 +710,11 @@ function GroupForm({ dives, group, mdAutomatic, onSaved, onCancel }) {
       <div className="grid gap-1.5"><Label htmlFor="group-description">{COPY.description}</Label><Input id="group-description" value={form.description} onChange={e => set("description", e.target.value)} /></div>
       <AccessEditor dives={dives} value={form.access} onChange={access => set("access", access)} />
       <div className="grid content-start gap-1.5">
+        <Label htmlFor="group-cap">{COPY.allowance}</Label>
+        <Input id="group-cap" className="max-w-48 tabular-nums" inputMode="numeric" value={form.cap} onChange={e => set("cap", e.target.value)} placeholder="1000000" aria-describedby="group-cap-hint" aria-invalid={Boolean(cap) && (!/^\d+$/.test(cap) || Number(cap) < 1000) || undefined} />
+        <span id="group-cap-hint" className="text-xs text-muted-foreground">{COPY.allowanceHint}</span>
+      </div>
+      <div className="grid content-start gap-1.5">
         <Label htmlFor="group-sa">{COPY.serviceAccount}</Label>
         <div className="flex flex-wrap gap-2">
           <Input id="group-sa" className="min-w-48 flex-1 font-mono text-xs" value={form.serviceAccount} onChange={e => set("serviceAccount", e.target.value.toLowerCase())} autoComplete="off" autoCapitalize="none" spellCheck={false} />
@@ -685,7 +725,7 @@ function GroupForm({ dives, group, mdAutomatic, onSaved, onCancel }) {
       </div>
       {form.serviceAccount.trim() && granted.length > 0 && <ResourceEditor dives={granted} value={form.resources} onChange={resources => set("resources", resources)} />}
       <div className="flex items-center gap-2 md:col-span-2">
-        <WriteButton type="submit" size="sm" disabled={state.busy || !form.name.trim()}>{state.busy ? <Spinner data-icon="inline-start" /> : null}{COPY.save}</WriteButton>
+        <WriteButton type="submit" size="sm" disabled={state.busy || !form.name.trim() || (Boolean(cap) && (!/^\d+$/.test(cap) || Number(cap) < 1000))}>{state.busy ? <Spinner data-icon="inline-start" /> : null}{COPY.save}</WriteButton>
         <Button type="button" size="sm" variant="ghost" onClick={onCancel}>{COPY.cancel}</Button>
         <Notice message={state.message} tone={state.tone} />
       </div>
@@ -760,7 +800,7 @@ function GroupsTab({ data, mdAutomatic, reload }) {
     <div className="grid gap-6">
       <Card>
         <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-2">
-          <div className="grid max-w-3xl gap-1.5"><CardTitle>{COPY.groups}</CardTitle><CardDescription>{COPY.groupsBody}</CardDescription></div>
+          <div className="grid max-w-3xl gap-1.5"><CardTitle role="heading" aria-level={2}>{COPY.groups}</CardTitle><CardDescription>{COPY.groupsBody}</CardDescription></div>
           {editing !== "new" && <Button size="sm" onClick={() => setEditing("new")}><Plus data-icon="inline-start" aria-hidden="true" />{COPY.newGroup}</Button>}
         </CardHeader>
         {editing === "new" && <CardContent><GroupForm dives={data.dives} mdAutomatic={mdAutomatic} onSaved={saved} onCancel={() => setEditing(null)} /></CardContent>}
@@ -771,9 +811,15 @@ function GroupsTab({ data, mdAutomatic, reload }) {
         <Card key={`${group.id}:${group.memberCount}`}>
           <CardHeader className="flex flex-row flex-wrap items-start gap-2">
             <div className="mr-auto grid min-w-0 gap-1">
-              <CardTitle className="flex flex-wrap items-center gap-2">{group.name}{group.serviceAccount && <Badge variant="outline"><Database aria-hidden="true" />{COPY.dataGroup}</Badge>}</CardTitle>
+              <CardTitle role="heading" aria-level={2} className="flex flex-wrap items-center gap-2">{group.name}{group.serviceAccount && <Badge variant="outline"><Database aria-hidden="true" />{COPY.dataGroup}</Badge>}</CardTitle>
               <CardDescription>{[group.description, `${diveSummary(data.dives, group)} · ${COPY.chat} ${group.chatReady ? "✓" : "✗"}`, plural(COPY.memberCount, group.memberCount ?? 0), group.serviceAccount].filter(Boolean).join(" · ")}</CardDescription>
               {group.chat && !group.chatReady && <p className="text-xs text-muted-foreground">{COPY.chatNotReady}</p>}
+              {group.monthlyTokenCap && (
+                <div className="grid max-w-sm gap-1 text-xs text-muted-foreground">
+                  <span className="flex flex-wrap items-center gap-2">{fill(COPY.allowanceUsed, { used: Number(group.tokensThisMonth ?? 0).toLocaleString(), cap: Number(group.monthlyTokenCap).toLocaleString() })}{(group.tokensThisMonth ?? 0) >= group.monthlyTokenCap && <Badge variant="destructive">{COPY.allowanceReached}</Badge>}</span>
+                  <span className="h-1.5 overflow-hidden rounded-full bg-muted" aria-hidden="true"><span className="block h-full rounded-full" style={{ width: `${Math.min(100, ((group.tokensThisMonth ?? 0) / group.monthlyTokenCap) * 100)}%`, background: (group.tokensThisMonth ?? 0) >= group.monthlyTokenCap ? "var(--chart-attention)" : "var(--chart-answered)" }} /></span>
+                </div>
+              )}
             </div>
             <span className="flex shrink-0 flex-wrap gap-1">
               <Button size="sm" variant="ghost" aria-expanded={editing === group.id} aria-label={`${COPY.editGroup}: ${group.name}`} onClick={() => setEditing(editing === group.id ? null : group.id)}><Pencil data-icon="inline-start" aria-hidden="true" />{COPY.editGroup}</Button>
@@ -814,7 +860,7 @@ function AccessSyncTab({ status, reload }) {
     <div className="grid gap-6">
       <Card>
         <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-2">
-          <div className="grid max-w-3xl gap-1.5"><CardTitle>{COPY.mdTitle}</CardTitle><CardDescription>{status.mode === "automatic" ? COPY.mdAutomatic : COPY.mdManual}</CardDescription></div>
+          <div className="grid max-w-3xl gap-1.5"><CardTitle role="heading" aria-level={2}>{COPY.mdTitle}</CardTitle><CardDescription>{status.mode === "automatic" ? COPY.mdAutomatic : COPY.mdManual}</CardDescription></div>
           <span className="flex gap-1">
             <WriteButton size="sm" disabled={state.busy} onClick={() => post({})}>{state.busy ? <Spinner data-icon="inline-start" /> : <RefreshCw data-icon="inline-start" aria-hidden="true" />}{state.busy ? COPY.syncing : COPY.syncNow}</WriteButton>
           </span>
@@ -843,7 +889,7 @@ function AccessSyncTab({ status, reload }) {
       </Card>
       {status.sql && (
         <Card>
-          <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2"><CardTitle>{COPY.sqlTitle}</CardTitle><span className="flex gap-1"><CopyButton text={status.sql} />{status.mode === "manual" && <WriteButton size="sm" variant="outline" disabled={state.busy} onClick={() => post({ confirm: status.planned || [] })}><CheckCheck data-icon="inline-start" aria-hidden="true" />{COPY.markDone}</WriteButton>}</span></CardHeader>
+          <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2"><CardTitle role="heading" aria-level={2}>{COPY.sqlTitle}</CardTitle><span className="flex gap-1"><CopyButton text={status.sql} />{status.mode === "manual" && <WriteButton size="sm" variant="outline" disabled={state.busy} onClick={() => post({ confirm: status.planned || [] })}><CheckCheck data-icon="inline-start" aria-hidden="true" />{COPY.markDone}</WriteButton>}</span></CardHeader>
           <CardContent className="grid gap-2">{status.mode === "manual" && <p className="text-xs text-muted-foreground">{COPY.markDoneHint}</p>}<pre className="overflow-x-auto whitespace-pre-wrap rounded-md bg-muted p-3 font-mono text-xs">{status.sql}</pre></CardContent>
         </Card>
       )}
@@ -915,7 +961,7 @@ function SplitTable({ title, rows, name }) {
   const max = Math.max(1, ...rows.map(row => row.questions));
   return (
     <div className="grid content-start gap-2">
-      <h3 className="text-sm font-medium">{title}</h3>
+      {title && <h3 className="text-sm font-medium">{title}</h3>}
       <table className="w-full text-sm">
         <thead className="text-xs text-muted-foreground"><tr><th scope="col" className="pb-1 text-left font-normal">{COPY.colName}</th><th scope="col" className="pb-1 text-right font-normal">{COPY.colQuestions}</th><th scope="col" className="pb-1 text-right font-normal">{COPY.colAttention}</th><th scope="col" className="pb-1 text-right font-normal"><ThumbsUp className="ml-auto size-3.5" aria-label={COPY.helpful} /></th><th scope="col" className="pb-1 text-right font-normal"><ThumbsDown className="ml-auto size-3.5" aria-label={COPY.notHelpful} /></th></tr></thead>
         <tbody>
@@ -937,10 +983,22 @@ function SplitTable({ title, rows, name }) {
   );
 }
 
+// An entry in a question list. Administrators open the conversation; group managers only read.
+function QuestionItem({ onOpen, conversationId, children }) {
+  const className = "grid w-full gap-1 border-b border-border px-1 py-2 text-left last:border-b-0";
+  return onOpen
+    ? <button type="button" onClick={() => onOpen(conversationId)} title={COPY.openConversation} className={`${className} hover:bg-muted`}>{children}</button>
+    : <div className={className}>{children}</div>;
+}
+
+const money = (amount, currency) => { try { return amount.toLocaleString(undefined, { style: "currency", currency, maximumFractionDigits: amount < 0.1 ? 4 : amount < 10 ? 2 : 0 }); } catch { return `${amount.toFixed(2)} ${currency}`; } };
+
 function QuestionsTab({ dives, onOpen }) {
   const [filters, setFilters] = React.useState({ days: "30", dive: "", group: "" });
   const [data, setData] = React.useState(null);
   const [state, setState] = React.useState({ loading: true, error: "", exporting: false });
+  const [action, setAction] = React.useState({ busy: "", message: "", tone: "muted" });
+  const { reason, explain } = React.useContext(ReadOnly);
   const diveTitle = key => dives.find(dive => dive.key === key)?.title || key;
   const params = React.useMemo(() => new URLSearchParams(Object.entries(filters).filter(([, value]) => value)), [filters]);
   const load = React.useCallback(async () => {
@@ -954,12 +1012,22 @@ function QuestionsTab({ dives, onOpen }) {
     try {
       const { rows } = await api(`/api/admin/insights?${params}&format=rows`);
       downloadText([
-        "asked_at,person,dive,groups,question,status,feedback,model,model_id,seconds,input_tokens,output_tokens,tool_calls,dive_state,conversation_id",
-        ...rows.map(row => [row.asked_at, row.user_label, row.dive_key, row.group_names.join("; "), row.question, row.status, feedbackWord(row.feedback), row.model_tier, row.model_id, row.worked_ms == null ? "" : (row.worked_ms / 1000).toFixed(1), row.input_tokens, row.output_tokens, row.tool_calls, row.dive_state ? JSON.stringify(row.dive_state) : "", row.conversation_id].map(csvCell).join(",")),
+        "asked_at,person,dive,groups,question,status,feedback,feedback_reason,feedback_note,topic,data_missing,model,model_id,seconds,input_tokens,output_tokens,tool_calls,dive_state,conversation_id",
+        ...rows.map(row => [row.asked_at, row.user_label, row.dive_key, row.group_names.join("; "), row.question, row.status, feedbackWord(row.feedback), row.feedback_reason, row.feedback_note, row.topic, row.data_gap ? "yes" : "", row.model_tier, row.model_id, row.worked_ms == null ? "" : (row.worked_ms / 1000).toFixed(1), row.input_tokens, row.output_tokens, row.tool_calls, row.dive_state ? JSON.stringify(row.dive_state) : "", row.conversation_id].map(csvCell).join(",")),
       ].join("\n"), `questions-${filters.days}d.csv`, "text/csv");
       setState(current => ({ ...current, exporting: false }));
     } catch (error) { setState(current => ({ ...current, exporting: false, error: reasonFor(error) })); }
   };
+  // Administrator actions: group questions into topics, post the digest now.
+  const runAction = async (key, request, done) => {
+    if (reason) return explain();
+    setAction({ busy: key, message: "", tone: "muted" });
+    try { const result = await request(); setAction({ busy: "", message: done(result), tone: "muted" }); load(); }
+    catch (error) { setAction({ busy: "", message: fill(COPY.failed, { reason: reasonFor(error) }), tone: "error" }); }
+  };
+  const groupTopics = () => runAction("topics", () => api(`/api/admin/insights/topics?${params}`, { method: "POST" }), result => fill(COPY.topicsDone, { n: result.classified }));
+  const sendDigest = () => runAction("digest", () => api("/api/admin/digest", { method: "POST" }), () => COPY.digestSent);
+  const admin = data?.scope !== "manager";
   const totals = data?.totals;
   const diveKeys = [...new Set([...dives.map(dive => dive.key), ...(data?.facets?.dives || [])])];
   const rated = totals ? totals.positive + totals.negative : 0;
@@ -967,7 +1035,7 @@ function QuestionsTab({ dives, onOpen }) {
     <div className="grid gap-4">
       <Card>
         <CardHeader className="grid gap-3">
-          <div className="grid max-w-3xl gap-1.5"><CardTitle>{COPY.questionsTitle}</CardTitle><CardDescription>{COPY.questionsBody}</CardDescription></div>
+          <div className="grid max-w-3xl gap-1.5"><CardTitle role="heading" aria-level={2}>{COPY.questionsTitle}</CardTitle><CardDescription>{admin ? COPY.questionsBody : fill(COPY.managerQuestions, { groups: (data?.facets?.groups || []).join(", ") })}</CardDescription></div>
           <div className="flex flex-wrap gap-2">
             <select aria-label={COPY.period} className={select} value={filters.days} onChange={e => setFilters(f => ({ ...f, days: e.target.value }))}>
               {COPY.periods.map(([days, label]) => <option key={days} value={days}>{label}</option>)}
@@ -982,9 +1050,11 @@ function QuestionsTab({ dives, onOpen }) {
             </select>
             <span className="flex gap-2 sm:ml-auto">
               <Button size="sm" variant="ghost" onClick={load} disabled={state.loading}><RefreshCw data-icon="inline-start" aria-hidden="true" />{COPY.refresh}</Button>
+              {admin && data?.digest && <WriteButton size="sm" variant="ghost" onClick={sendDigest} disabled={Boolean(action.busy)}>{COPY.sendDigest}</WriteButton>}
               <Button size="sm" variant="outline" onClick={exportCsv} disabled={state.exporting || !totals?.questions}><Download data-icon="inline-start" aria-hidden="true" />{COPY.exportQuestions}</Button>
             </span>
           </div>
+          <Notice message={action.message} tone={action.tone} />
         </CardHeader>
         <CardContent className="grid gap-5">
           <Notice message={state.error && fill(COPY.failed, { reason: state.error })} tone="error" />
@@ -992,11 +1062,12 @@ function QuestionsTab({ dives, onOpen }) {
           {totals && !totals.questions && <p className="text-sm text-muted-foreground">{COPY.noQuestions}</p>}
           {totals?.questions > 0 && (
             <>
-              <div className="grid grid-cols-2 gap-2 lg:grid-cols-4" aria-busy={state.loading}>
+              <div className={`grid grid-cols-2 gap-2 ${data.cost ? "lg:grid-cols-5" : "lg:grid-cols-4"}`} aria-busy={state.loading}>
                 <StatTile label={COPY.tileQuestions} value={totals.questions} detail={fill(COPY.tileQuestionsDetail, { people: plural(COPY.people, totals.askers), conversations: plural(COPY.conversationCount, totals.conversations) })} />
                 <StatTile label={COPY.tileAnswered} value={`${percent(totals.answered, totals.questions)}%`} detail={fill(COPY.tileAnsweredDetail, totals)} />
                 <StatTile label={COPY.tileFeedback} value={<span className="flex items-center gap-3"><span className="flex items-center gap-1"><ThumbsUp className="size-4" aria-label={COPY.helpful} />{totals.positive}</span><span className="flex items-center gap-1"><ThumbsDown className="size-4" aria-label={COPY.notHelpful} />{totals.negative}</span></span>} detail={fill(COPY.tileFeedbackDetail, { rated: percent(rated, totals.answered) })} />
                 <StatTile label={COPY.tileSpeed} value={seconds(totals.median_ms)} detail={fill(COPY.tileSpeedDetail, { tokens: Number(totals.input_tokens + totals.output_tokens).toLocaleString() })} />
+                {data.cost && <StatTile label={COPY.tileCost} value={money(data.cost.total, data.cost.currency)} detail={[Object.entries(data.cost.byTier).map(([tier, amount]) => `${tier} ${money(amount, data.cost.currency)}`).join(" · "), data.cost.unpriced.length ? fill(COPY.unpriced, { tiers: data.cost.unpriced.join(", ") }) : ""].filter(Boolean).join(" · ") || COPY.tileCostDetail} />}
               </div>
               <DailyChart daily={data.daily} />
             </>
@@ -1007,38 +1078,72 @@ function QuestionsTab({ dives, onOpen }) {
         <>
           <div className="grid gap-4 lg:grid-cols-2">
             <Card className="min-w-0">
-              <CardHeader><CardTitle>{COPY.attention}</CardTitle><CardDescription>{COPY.attentionHint}</CardDescription></CardHeader>
+              <CardHeader><CardTitle role="heading" aria-level={2}>{COPY.attention}</CardTitle><CardDescription>{COPY.attentionHint}</CardDescription></CardHeader>
               <CardContent>
                 {!data.attention.length && <p className="text-sm text-muted-foreground">{COPY.noAttention}</p>}
                 <ul className="grid">
                   {data.attention.map(item => (
                     <li key={item.question_id}>
-                      <button type="button" onClick={() => onOpen(item.conversation_id)} title={COPY.openConversation} className="grid w-full gap-1 border-b border-border px-1 py-2 text-left last:border-b-0 hover:bg-muted">
+                      <QuestionItem onOpen={onOpen} conversationId={item.conversation_id}>
                         <span className="line-clamp-2 text-sm">{item.question}</span>
                         <span className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
                           {item.status !== "answered" && <Badge variant="destructive">{COPY.statuses[item.status] || item.status}</Badge>}
-                          {item.feedback === -1 && <Badge variant="outline"><ThumbsDown aria-hidden="true" />{COPY.notHelpful}</Badge>}
+                          {item.feedback === -1 && <Badge variant="outline"><ThumbsDown aria-hidden="true" />{item.feedback_reason ? COPY.feedbackReasons[item.feedback_reason] || item.feedback_reason : COPY.notHelpful}</Badge>}
                           {item.user_label} · {diveTitle(item.dive_key)} · {dateTime(item.asked_at)}
                         </span>
-                      </button>
+                        {item.feedback_note && <span className="text-xs text-muted-foreground">“{item.feedback_note}”</span>}
+                      </QuestionItem>
                     </li>
                   ))}
                 </ul>
               </CardContent>
             </Card>
             <Card className="min-w-0">
-              <CardHeader><CardTitle>{COPY.frequent}</CardTitle><CardDescription>{COPY.frequentHint}</CardDescription></CardHeader>
+              <CardHeader><CardTitle role="heading" aria-level={2}>{COPY.frequent}</CardTitle><CardDescription>{COPY.frequentHint}</CardDescription></CardHeader>
               <CardContent>
                 <ol className="grid">
                   {data.frequent.map(item => (
                     <li key={item.conversation_id + item.question}>
-                      <button type="button" onClick={() => onOpen(item.conversation_id)} title={COPY.openConversation} className="grid w-full gap-1 border-b border-border px-1 py-2 text-left last:border-b-0 hover:bg-muted">
+                      <QuestionItem onOpen={onOpen} conversationId={item.conversation_id}>
                         <span className="line-clamp-2 text-sm">{item.question}</span>
                         <span className="text-xs text-muted-foreground">{fill(COPY.askedBy, { questions: plural(COPY.questionCount, item.questions), people: plural(COPY.people, item.askers), when: dateTime(item.last_asked_at) })}{item.unsuccessful + item.negative ? ` · ${item.unsuccessful + item.negative} ${COPY.needsAttention.toLowerCase()}` : ""}</span>
-                      </button>
+                      </QuestionItem>
                     </li>
                   ))}
                 </ol>
+              </CardContent>
+            </Card>
+          </div>
+          <div className="grid gap-4 lg:grid-cols-2">
+            <Card className="min-w-0">
+              <CardHeader className="grid gap-2">
+                <CardTitle role="heading" aria-level={2}>{COPY.topics}</CardTitle>
+                <CardDescription>{COPY.topicsHint}</CardDescription>
+                {admin && (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <WriteButton size="sm" variant="outline" onClick={groupTopics} disabled={Boolean(action.busy) || !totals.unclassified || !data.topicsAvailable}>{action.busy === "topics" ? <><Spinner data-icon="inline-start" />{COPY.groupingTopics}</> : COPY.groupTopics}</WriteButton>
+                    <span className="text-xs text-muted-foreground">{!data.topicsAvailable ? COPY.topicsNeedModel : totals.unclassified ? plural(COPY.unclassified, totals.unclassified) : ""}</span>
+                  </div>
+                )}
+              </CardHeader>
+              <CardContent>
+                {data.topics.length ? <SplitTable title="" rows={data.topics} name={row => row.topic} /> : <p className="text-sm text-muted-foreground">{COPY.noTopics}</p>}
+              </CardContent>
+            </Card>
+            <Card className="min-w-0">
+              <CardHeader><CardTitle role="heading" aria-level={2}>{COPY.gaps}</CardTitle><CardDescription>{COPY.gapsHint}</CardDescription></CardHeader>
+              <CardContent>
+                {!data.gaps.length && <p className="text-sm text-muted-foreground">{COPY.noGaps}</p>}
+                <ul className="grid">
+                  {data.gaps.map(item => (
+                    <li key={item.question_id}>
+                      <QuestionItem onOpen={onOpen} conversationId={item.conversation_id}>
+                        <span className="line-clamp-2 text-sm">{item.question}</span>
+                        <span className="text-xs text-muted-foreground">{[item.topic, item.user_label, diveTitle(item.dive_key), dateTime(item.asked_at)].filter(Boolean).join(" · ")}</span>
+                      </QuestionItem>
+                    </li>
+                  ))}
+                </ul>
               </CardContent>
             </Card>
           </div>
@@ -1073,7 +1178,7 @@ function ActivityTab() {
   return (
     <Card>
       <CardHeader className="grid gap-3">
-        <div className="grid max-w-3xl gap-1.5"><CardTitle>{COPY.activityTitle}</CardTitle><CardDescription>{COPY.activityBody}</CardDescription></div>
+        <div className="grid max-w-3xl gap-1.5"><CardTitle role="heading" aria-level={2}>{COPY.activityTitle}</CardTitle><CardDescription>{COPY.activityBody}</CardDescription></div>
         <div className="flex flex-wrap gap-2">
           <div className="relative"><Search className="absolute left-2 top-2.5 size-4 text-muted-foreground" aria-hidden="true" /><Input type="search" className="h-9 w-56 pl-8" aria-label={COPY.filterActivity} placeholder={COPY.filterActivity} value={filters.q} onChange={e => setFilters(f => ({ ...f, q: e.target.value }))} /></div>
           <select aria-label={COPY.allActions} className={select} value={filters.action} onChange={e => setFilters(f => ({ ...f, action: e.target.value }))}>
@@ -1140,10 +1245,12 @@ function ConversationDetail({ id, diveTitle, onDeleted }) {
               {message.role === "user" ? COPY.question : COPY.answer} · {dateTime(message.created_at)}
               {message.status && message.status !== "answered" && <Badge variant="destructive">{COPY.statuses[message.status] || message.status}</Badge>}
               {message.feedback === 1 && <Badge variant="outline"><ThumbsUp aria-hidden="true" />{COPY.helpful}</Badge>}
-              {message.feedback === -1 && <Badge variant="outline"><ThumbsDown aria-hidden="true" />{COPY.notHelpful}</Badge>}
+              {message.feedback === -1 && <Badge variant="outline"><ThumbsDown aria-hidden="true" />{COPY.notHelpful}{message.feedback_reason ? `: ${COPY.feedbackReasons[message.feedback_reason] || message.feedback_reason}` : ""}</Badge>}
             </p>
             {/* Answers render as the person saw them in the chat; questions stay plain text. */}
             {message.role === "assistant" ? <MessageResponse className="h-auto text-sm">{message.content}</MessageResponse> : <p className="whitespace-pre-wrap text-sm">{message.content}</p>}
+            {message.role === "assistant" && message.feedback_note && <p className="mt-1 text-xs text-muted-foreground">“{message.feedback_note}”</p>}
+            {message.role === "user" && message.topic && <p className="mt-1 text-xs text-muted-foreground">{fill(COPY.topicLabel, { topic: message.topic })}{message.data_gap ? ` · ${COPY.feedbackReasons.missing_data}` : ""}</p>}
             {message.role === "user" && message.group_names?.length > 0 && <p className="mt-1 text-xs text-muted-foreground">{fill(COPY.askedFrom, { groups: message.group_names.join(", ") })}</p>}
             {message.role === "user" && message.dive_state && Object.keys(message.dive_state).length > 0 && <p className="mt-1 break-words text-xs text-muted-foreground">{fill(COPY.askedWith, { state: Object.entries(message.dive_state).map(([key, value]) => `${key}: ${typeof value === "object" ? JSON.stringify(value) : String(value)}`).join(" · ") })}</p>}
             {message.role === "assistant" && (
@@ -1294,7 +1401,7 @@ export default function AdminApp() {
   }, [load]);
 
   const admin = data.scope === "admin";
-  const tabs = [["users", COPY.users, Users], ...(admin ? [["groups", COPY.groups, UsersRound], ["motherduck", COPY.motherduck, Database], ["activity", COPY.activity, History], ["questions", COPY.questions, ChartColumn], ["conversations", COPY.conversations, MessageSquare]] : [])];
+  const tabs = [["users", COPY.users, Users], ...(admin ? [["groups", COPY.groups, UsersRound], ["motherduck", COPY.motherduck, Database], ["activity", COPY.activity, History], ["questions", COPY.questions, ChartColumn], ["conversations", COPY.conversations, MessageSquare]] : [["questions", COPY.questions, ChartColumn]])];
   const shown = tabs.some(([key]) => key === tab) ? tab : "users";
   React.useEffect(() => { if (status.state === "ready" && shown === "motherduck") loadSync(); }, [status.state, shown, loadSync]);
   // Arrow keys move between tabs, as in any tab list.
@@ -1324,16 +1431,16 @@ export default function AdminApp() {
         {status.state === "loading" && <Spinner />}
         {status.demo && (
           <Card>
-            <CardHeader><CardTitle>{COPY.demoTitle}</CardTitle><CardDescription>{COPY.demoBody}</CardDescription></CardHeader>
+            <CardHeader><CardTitle role="heading" aria-level={2}>{COPY.demoTitle}</CardTitle><CardDescription>{COPY.demoBody}</CardDescription></CardHeader>
             <CardContent><ul className="grid list-disc gap-1 pl-5 text-sm text-muted-foreground">{COPY.demoTry.map(item => <li key={item}>{item}</li>)}</ul></CardContent>
           </Card>
         )}
-        {message && <Card><CardHeader><CardTitle>{message[0]}</CardTitle><CardDescription>{message[1]}</CardDescription></CardHeader>{status.state === "signin" && <CardContent><Button nativeButton={false} render={<a href="/" />}>{COPY.back}</Button></CardContent>}</Card>}
+        {message && <Card><CardHeader><CardTitle role="heading" aria-level={2}>{message[0]}</CardTitle><CardDescription>{message[1]}</CardDescription></CardHeader>{status.state === "signin" && <CardContent><Button nativeButton={false} render={<a href="/" />}>{COPY.back}</Button></CardContent>}</Card>}
         {status.state === "ready" && shown === "users" && <UsersTab data={data} grants={sync?.grants || []} reload={load} loading={loading} />}
         {status.state === "ready" && admin && shown === "groups" && <GroupsTab data={data} mdAutomatic={data.mdAutomatic ?? sync?.mode === "automatic"} reload={load} />}
         {status.state === "ready" && admin && shown === "motherduck" && <AccessSyncTab status={sync} reload={loadSync} />}
         {status.state === "ready" && admin && shown === "activity" && <ActivityTab />}
-        {status.state === "ready" && admin && shown === "questions" && <QuestionsTab dives={data.dives} onOpen={id => { setOpenConversation(id); setTab("conversations"); window.scrollTo({ top: 0 }); }} />}
+        {status.state === "ready" && shown === "questions" && <QuestionsTab dives={data.dives} onOpen={admin ? id => { setOpenConversation(id); setTab("conversations"); window.scrollTo({ top: 0 }); } : undefined} />}
         {status.state === "ready" && admin && shown === "conversations" && <ConversationsTab key={openConversation ?? "all"} users={data.users} dives={data.dives} initial={openConversation} />}
       </main>
       <DemoToast message={toast} />
