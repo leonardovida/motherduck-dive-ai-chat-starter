@@ -25,6 +25,8 @@
   --color-muted: var(--muted);
   --color-secondary-foreground: var(--secondary-foreground);
   --color-secondary: var(--secondary);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
   --color-primary-foreground: var(--primary-foreground);
   --color-primary: var(--primary);
   --color-popover-foreground: var(--popover-foreground);
@@ -179,12 +181,6 @@
 .source-alert > svg { color: var(--data-blue); }
 .source-domain { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.75rem; }
 .source-actions { display: flex; gap: 0.25rem; }
-
-.definitions-sheet { gap: 0; }
-.definition-list { margin: 0; padding: 0 1rem 1rem; overflow-y: auto; }
-.definition-row { display: grid; gap: 0.25rem; padding: 0.75rem 0; border-top: 1px solid var(--border); }
-.definition-row dt { font-size: 0.85rem; font-weight: 500; }
-.definition-row dd { margin: 0; color: var(--muted-foreground); font-size: 0.8rem; line-height: 1.5; }
 
 .sidebar-resizer { z-index: 3; width: 0.5rem !important; flex: 0 0 0.5rem; background: transparent; cursor: col-resize; touch-action: none; }
 .sidebar-resizer::after { width: 1.25rem !important; }

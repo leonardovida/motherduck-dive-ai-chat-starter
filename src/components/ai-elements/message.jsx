@@ -2,7 +2,7 @@
 // Copyright 2023 Vercel, Inc. Apache-2.0; see LICENSE and THIRD_PARTY_NOTICES.md.
 "use client";
 import { memo } from "react";
-import { Streamdown } from "streamdown";
+import { Streamdown, defaultRehypePlugins } from "streamdown";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
@@ -81,6 +81,17 @@ export const MessageAction = ({
   return button;
 };
 
+// Answers come from a model that reads data anyone may have written, so the markdown is
+// treated as untrusted. Streamdown's defaults, except that images never load (a remote image
+// would leak the viewer's IP and could carry data out in its URL; the alt text shows instead),
+// and links are limited to http(s) and mailto, which rules out javascript: and data: URLs.
+const [harden] = defaultRehypePlugins.harden;
+const REHYPE_PLUGINS = [
+  defaultRehypePlugins.raw,
+  defaultRehypePlugins.sanitize,
+  [harden, { allowedLinkPrefixes: ["*"], allowedImagePrefixes: [], allowDataImages: false, imageBlockPolicy: "text-only" }],
+];
+
 export const MessageResponse = memo(
   ({
     className,
@@ -91,6 +102,7 @@ export const MessageResponse = memo(
         "size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
         className
       )}
+      rehypePlugins={REHYPE_PLUGINS}
       {...props}
     />
   ),
