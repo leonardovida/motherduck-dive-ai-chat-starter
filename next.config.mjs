@@ -5,6 +5,9 @@ import { fileURLToPath } from "node:url";
 const nextConfig = {
   // The end-to-end tests run their own dev server, so they build into another directory.
   distDir: process.env.NEXT_DIST_DIR || '.next',
+  // The container image (Dockerfile) builds a self-contained server. Vercel and local builds
+  // leave this unset and are unchanged.
+  ...(process.env.NEXT_OUTPUT_STANDALONE === '1' ? { output: 'standalone' } : {}),
   reactStrictMode: true,
   poweredByHeader: false,
   async headers() {

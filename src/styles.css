@@ -259,3 +259,5 @@ body.is-sidebar-resizing .dive-frame { pointer-events: none; }
   .login-input input, .chat-prompt textarea { font-size: 16px; }
 }
 .sidebar-error { margin: 0.25rem 0.5rem 0; color: var(--destructive); font-size: 0.75rem; }
+/* Streamdown puts list markers inside the text, so a wrapped bullet line started under the marker. */
+.chat-message [data-streamdown="unordered-list"], .chat-message [data-streamdown="ordered-list"] { padding-left: 1.25rem; list-style-position: outside; }

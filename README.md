@@ -6,9 +6,9 @@
 [![Latest release](https://img.shields.io/github/v/release/leonardovida/motherduck-dive-ai-chat-starter?sort=semver)](https://github.com/leonardovida/motherduck-dive-ai-chat-starter/releases)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
-![The starter on first run: a sidebar of dashboards, a dashboard area listing the settings it needs, and the chat panel](docs/preview.jpg)
+![A revenue dashboard filtered to EMEA, year to date, next to the chat panel. The assistant has read the filters and summarizes revenue, the strongest months and the one weak month.](docs/images/app-light.jpg)
 
-<sub>First run, before anything is connected. Each area lists exactly which settings it needs.</sub>
+<sub>The assistant reads the dashboard's current filters before it answers. Local preview with a sample dashboard and sample data.</sub>
 
 ## What you get
 
@@ -29,22 +29,25 @@ It is a small Next.js app. Use it as a demo, an internal tool, or the starting p
 
 | | |
 | --- | --- |
-| ![Admin portal, People: a pasted list of three people added to the Acme Corp group, each with a one-time setup link to copy](docs/images/admin-people.jpeg) | ![Admin portal, Groups: the Acme Corp customer group with its own MotherDuck service account and its own share for the Explorer Dive](docs/images/admin-groups.jpeg) |
-| **Add people in bulk.** Each person gets a one-time link to choose a password. | **One group per customer,** with its own MotherDuck service account and databases. |
-| ![Admin portal, MotherDuck access: share grants waiting for two service accounts and two MotherDuck users, with the SQL to run](docs/images/admin-motherduck-access.jpeg) | ![The page a new person sees from a setup link: Choose your password](docs/images/choose-password.jpeg) |
-| **Access mirrored onto MotherDuck,** automatically or as SQL to run. | **What a new person sees** when they open their link. |
+| ![The same dashboard and chat in dark mode](docs/images/app-dark.jpg) | <img src="docs/images/phone-chat.jpg" width="220" alt="Chat on a phone, full screen: the assistant describes what the viewer is looking at"> |
+| **Light or dark,** following the viewer's system setting or their choice. | **On a phone,** chat opens full screen. |
+| ![Admin portal, Questions: 92 questions in 30 days, 83% answered, ratings, a daily chart, the answers that need attention and the most asked questions](docs/images/admin-questions.jpg) | ![Admin portal, Models: one provider for every tier in a quick setup, then the Luna (fast) tier with its model and a Test button](docs/images/admin-models.jpg) |
+| **See what people ask,** how each answer went and how they rated it. | **Choose providers and models** for each tier, and test them in place. |
+| ![Admin portal, People: a form to add a person with a one-time setup link, and the list of people with their group, access and MotherDuck status](docs/images/admin-people.jpg) | ![Admin portal, Groups: customer groups with their own MotherDuck service account, members and a group manager](docs/images/admin-groups.jpg) |
+| **Add people** one at a time or as a list. Each one chooses a password from a one-time link. | **One group per customer,** with its own MotherDuck service account, data and manager. |
 
-<sub>Screenshots from a local preview with made-up people and placeholder share URLs.</sub>
+<sub>Screenshots from a local preview with a sample dashboard, sample data and made-up people.</sub>
 
 ## Get started
 
-Pick the path that suits you. All three end in the same place.
+Pick the path that suits you. All four end in the same place.
 
 | | Path | Good for | Time |
 | --- | --- | --- | --- |
 | 🤖 | [Let a coding agent set it up](#option-1-let-a-coding-agent-set-it-up) | Anyone with Claude Code, Codex, Cursor or a similar agent | About 15 minutes |
 | 💻 | [Try it on your computer](#option-2-try-it-on-your-computer) | Seeing the interface before connecting anything | 5 minutes |
 | ☁️ | [Deploy to Vercel](#option-3-deploy-to-vercel) | Sharing a link with your team or customers | 10 minutes once you have the [things you need](#what-you-need) |
+| 🏗️ | [Deploy to AWS, Google Cloud or Azure](#option-4-deploy-to-aws-google-cloud-or-azure) | Running it in your own cloud account, next to your other services | About 30 minutes |
 
 ### Option 1: Let a coding agent set it up
 
@@ -78,6 +81,18 @@ Have the [things you need](#what-you-need) ready, then click:
 Vercel copies the repository to your GitHub account and asks for eight settings. To use Anthropic instead of OpenAI, enter a placeholder for `OPENAI_API_KEY`. Then, under **Settings → Environment Variables**, delete it, add `ANTHROPIC_API_KEY` and redeploy. To turn on accounts, add `MOTHERDUCK_APP_TOKEN` there and follow [docs/accounts.md](docs/accounts.md). Each one is explained in the [settings reference](docs/configuration.md#settings). For `SESSION_SECRET`, paste the output of `openssl rand -hex 32`. For `DEMO_PASSWORD`, choose a strong password and share it only with your viewers.
 
 You can deploy to any host that runs Next.js. The app lives at the repository root. Production needs HTTPS. On hosts other than Vercel, also set `AUTH_TRUSTED_IP_HEADER` (see [settings](docs/configuration.md#sign-in)).
+
+### Option 4: Deploy to AWS, Google Cloud or Azure
+
+Run the starter in your own cloud account from the prebuilt container image. Each option keeps secrets in the cloud's secret manager, sets `APP_URL` and schedules the daily and weekly jobs. The full guide, with upgrades, costs and teardown, is in [docs/deploy.md](docs/deploy.md).
+
+| Cloud | One click | Repeatable |
+| --- | --- | --- |
+| **AWS** (ECS Fargate behind CloudFront) | Upload [the CloudFormation template](deploy/aws/cloudformation.template.json) in [CloudFormation > Create stack](https://console.aws.amazon.com/cloudformation/home#/stacks/create) | `npx cdk deploy` in `deploy/aws` |
+| **Google Cloud** (Cloud Run) | [![Run on Google Cloud](https://deploy.cloud.run/button.svg)](https://deploy.cloud.run/?git_repo=https://github.com/leonardovida/motherduck-dive-ai-chat-starter&dir=deploy/gcp) | Terraform in `deploy/gcp/terraform` |
+| **Azure** (Container Apps) | [![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fleonardovida%2Fmotherduck-dive-ai-chat-starter%2FHEAD%2Fdeploy%2Fazure%2Fazuredeploy.json) | `az deployment group create` with `deploy/azure/main.bicep` |
+
+The shared password needs a proxy that tells the app each visitor's IP address. AWS has one built in. On Google Cloud it comes with your own domain through Terraform. Otherwise, use [accounts](docs/accounts.md). See [Choose how people sign in](docs/deploy.md#choose-how-people-sign-in).
 
 ## What you need
 
@@ -206,6 +221,7 @@ Still stuck? Run `npm run --silent setup -- --json`. It lists exactly what is mi
 
 Every release has a version number, release notes and an entry in the [changelog](CHANGELOG.md). Browse them on the [Releases page](https://github.com/leonardovida/motherduck-dive-ai-chat-starter/releases).
 
+- **Fork or clone to keep receiving updates.** A fork, or a clone with this repository as the `upstream` remote, keeps the shared Git history, so each new release merges in with `git merge`.
 - **Start from a specific version:** `git clone --branch v0.1.0 https://github.com/leonardovida/motherduck-dive-ai-chat-starter.git`
 - **Upgrade an existing copy:** read the release notes for each version in between, then follow [Use a specific version](docs/releasing.md#use-a-specific-version).
 - **Maintainers:** see [Releasing a new version](docs/releasing.md).

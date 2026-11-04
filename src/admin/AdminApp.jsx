@@ -1187,7 +1187,9 @@ function ActivityTab() {
     } catch (error) { if (!signal.aborted) setState({ loading: false, error: reasonFor(error), more: false }); }
   }, [filters, request]);
   React.useEffect(() => { const timer = setTimeout(() => load(0), 250); return () => { clearTimeout(timer); request.abort(); }; }, [load, request]);
-  const describe = detail => (detail && typeof detail === "object" ? Object.entries(detail).filter(([, value]) => value !== null && value !== undefined && value !== "").map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(", ") || "—" : String(value)}`).join(" · ") : "");
+  // Nested objects, such as the model tiers, read as "key value" pairs rather than [object Object].
+  const show = value => (Array.isArray(value) ? value.join(", ") || "—" : value && typeof value === "object" ? Object.entries(value).map(([key, inner]) => `${key} ${show(inner)}`).join(", ") || "—" : String(value));
+  const describe = detail => (detail && typeof detail === "object" ? Object.entries(detail).filter(([, value]) => value !== null && value !== undefined && value !== "").map(([key, value]) => `${key}: ${show(value)}`).join(" · ") : "");
   return (
     <Card>
       <CardHeader className="grid gap-3">
@@ -1347,7 +1349,7 @@ function ConversationsTab({ users, dives, initial }) {
           {state.more && !state.loading && <Button size="sm" variant="ghost" onClick={() => load(items.length)}>{COPY.loadMore}</Button>}
         </CardContent>
       </Card>
-      <Card className="min-w-0 scroll-mt-4" ref={detailRef}><CardContent className="pt-6">{selected ? <ConversationDetail id={selected} diveTitle={diveTitle} onDeleted={() => { setSelected(null); load(0); }} /> : <p className="text-sm text-muted-foreground">{COPY.pick}</p>}</CardContent></Card>
+      <Card className="min-w-0 scroll-mt-4 lg:sticky lg:top-4 lg:max-h-[calc(100dvh-2rem)] lg:self-start lg:overflow-y-auto" ref={detailRef}><CardContent className="pt-6">{selected ? <ConversationDetail id={selected} diveTitle={diveTitle} onDeleted={() => { setSelected(null); load(0); }} /> : <p className="text-sm text-muted-foreground">{COPY.pick}</p>}</CardContent></Card>
     </div>
   );
 }

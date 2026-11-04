@@ -1,14 +1,14 @@
 # Releasing a new version
 
-Each version of this template is a Git tag such as `v0.2.0` with a matching GitHub Release. Teams can start from a known version, read what changed, and upgrade when they are ready.
+Each version of this starter is a Git tag such as `v0.2.0` with a matching GitHub Release. Teams can start from a known version, read what changed, and upgrade when they are ready.
 
 ## Version numbers
 
-Versions follow [Semantic Versioning](https://semver.org/). For a template, the parts mean:
+Versions follow [Semantic Versioning](https://semver.org/). For this starter, the parts mean:
 
 | Bump | When | Examples |
 | --- | --- | --- |
-| **Major** (`1.0.0` → `2.0.0`) | A copy of the template needs changes to keep working after the upgrade. | A setting is renamed or removed, the shape of `dives.config.mjs` changes, or the supported Node.js range narrows. |
+| **Major** (`1.0.0` → `2.0.0`) | A copy of the starter needs changes to keep working after the upgrade. | A setting is renamed or removed, the shape of `dives.config.mjs` changes, or the supported Node.js range narrows. |
 | **Minor** (`0.1.0` → `0.2.0`) | New features that keep existing configuration working. | A new optional setting, chat tool or UI capability. |
 | **Patch** (`0.1.0` → `0.1.1`) | Fixes, dependency updates and documentation. | A bug fix or a security update. |
 
@@ -23,7 +23,7 @@ Before `1.0.0`, a minor bump may include breaking changes. Its release notes the
    npm version 0.2.0 --no-git-tag-version
    ```
 
-3. Write `release-notes/v0.2.0.md`. Use the sections and tone of the earlier notes: Highlights, Upgrading (when behavior changes), Features, Bug Fixes, Compatibility and Maintenance. Write for the people who use the template, and link every item to its change.
+3. Write `release-notes/v0.2.0.md`. Use the sections and tone of the earlier notes: Highlights, Upgrading (when behavior changes), Features, Bug Fixes, Compatibility and Maintenance. Write for the people who use the starter, and link every item to its change.
 4. Add a short entry to the top of [CHANGELOG.md](../CHANGELOG.md) headed `## v0.2.0 - YYYY-MM-DD` that links to the notes.
 5. Check everything locally:
 
@@ -44,6 +44,8 @@ Before `1.0.0`, a minor bump may include breaking changes. Its release notes the
 
 The **Release** workflow then tests and builds the tagged commit. It publishes a GitHub Release with `release-notes/v0.2.0.md` as the body. A tag with a suffix, such as `v0.2.0-rc.1`, is published as a pre-release.
 
+The **Container image** workflow builds the same commit, checks that it starts, and publishes `ghcr.io/<owner>/<repo>:0.2.0` and, for a tag without a suffix, `:latest`. The [AWS, Google Cloud and Azure deployments](deploy.md) pull it. After the first publish, set the package's visibility to **Public** in its GitHub settings.
+
 If the workflow fails before it publishes, fix the problem in a new pull request, delete the tag (`git push origin :refs/tags/v0.2.0` and `git tag -d v0.2.0`), and tag the fixed commit again.
 
 ## Use a specific version
@@ -54,7 +56,7 @@ If the workflow fails before it publishes, fix the problem in a new pull request
   git clone --branch v0.1.0 https://github.com/leonardovida/motherduck-dive-ai-chat-starter.git
   ```
 
-  GitHub's **Use this template** button copies the latest default branch, not a tag.
+  To receive later releases with a plain `git merge`, fork the repository or clone it. Both keep the shared Git history. A copy that starts from a fresh history, such as one created by the Vercel button, needs `git merge --allow-unrelated-histories` for its first upgrade.
 
 - **Existing copy:** read the release notes between your version and the target version, especially the Upgrading and Compatibility sections. Then bring the changes in:
 
@@ -64,4 +66,4 @@ If the workflow fails before it publishes, fix the problem in a new pull request
   git merge v0.2.0   # or cherry-pick specific commits
   ```
 
-  A coding agent can do this for you. Ask it to "upgrade this project to template version v0.2.0 following AGENTS.md".
+  A coding agent can do this for you. Ask it to "upgrade this project to release v0.2.0 following AGENTS.md".

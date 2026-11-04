@@ -1,0 +1,44 @@
+{
+  "name": "motherduck-dive-chat",
+  "env": {
+    "MOTHERDUCK_EMBED_USERNAME": {
+      "description": "The read-only MotherDuck service account the embedded Dive runs as",
+      "order": 1
+    },
+    "DIVE_OVERVIEW_ID": {
+      "description": "The ID of the saved Dive to show",
+      "order": 2
+    },
+    "DIVE_OVERVIEW_CHAT_DATABASE": {
+      "description": "The database chat may query (leave empty to show the Dive without chat)",
+      "required": false,
+      "order": 3
+    },
+    "APP_TITLE": {
+      "description": "The name shown in the header (optional)",
+      "required": false,
+      "order": 4
+    }
+  },
+  "options": {
+    "allow-unauthenticated": true,
+    "memory": "1Gi",
+    "cpu": "1",
+    "port": 3000,
+    "max-instances": 2
+  },
+  "build": {
+    "skip": true
+  },
+  "hooks": {
+    "prebuild": {
+      "commands": ["./button/prebuild.sh"]
+    },
+    "precreate": {
+      "commands": ["./button/precreate.sh"]
+    },
+    "postcreate": {
+      "commands": ["./button/postcreate.sh"]
+    }
+  }
+}

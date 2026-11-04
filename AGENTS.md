@@ -41,9 +41,13 @@ Credentials stay in environment variables. Never put keys, AWS secrets, service-
 
 [docs/configuration.md](docs/configuration.md) explains every setting in plain language and says where each value comes from. Quote it, or link to it, when you tell a user which values to add.
 
-## Upgrade a copy to a newer template version
+## Deploy to AWS, Google Cloud or Azure
 
-When a user asks you to upgrade to a template version such as `v0.2.0`:
+When the user asks to host the app outside Vercel, follow [docs/deploy.md](docs/deploy.md). Ask which cloud and which sign-in mode; on Google Cloud without a domain, and on Azure, the shared password needs a trusted proxy, so suggest accounts. Have the user enter each secret value in that cloud's secret manager, under the names listed there, or at the hidden prompts the guide describes. Never put secret values on a command line, in a template, in `terraform.tfvars` or in `cdk.json`. Deploying, and creating cloud resources, needs the user's explicit request.
+
+## Upgrade a copy to a newer release
+
+When a user asks you to upgrade to a release such as `v0.2.0`:
 
 1. Read `CHANGELOG.md` and every `release-notes/v*.md` between the copy's version (`version` in `package.json`) and the target version. Pay most attention to the **Upgrading** and **Compatibility** sections.
 2. Fetch the tag from `https://github.com/leonardovida/motherduck-dive-ai-chat-starter.git` and merge it, or cherry-pick from it, on a new branch. Keep the user's Dives, `dives.config.mjs` entries, branding and settings.
@@ -63,4 +67,4 @@ Use a browser, rather than treating a build or `configurationReady` as success:
 - In accounts mode, also sign in as the administrator and add a test person through the admin portal. Limit their Dives and chat, and confirm the restriction from their session. Find your test conversation under **Conversations**, then remove the test person.
 - Report local setup, live API verification, browser verification and deployment as separate states. If a boundary is blocked, identify it and give the smallest remaining action.
 
-Keep the result generic: no customer branding, datasets, identifiers or credentials in this template. See [docs/architecture.md](docs/architecture.md) for the existing design before adding infrastructure.
+Keep the result generic: no customer branding, datasets, identifiers or credentials in this repository. See [docs/architecture.md](docs/architecture.md) for the existing design before adding infrastructure.
