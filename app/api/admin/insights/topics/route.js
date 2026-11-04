@@ -4,6 +4,7 @@ import { classifyTopics, topicSchema } from '../../../../../lib/topics.mjs';
 import { chatConfigured, utilityModel } from '../../../../../lib/chat-models.mjs';
 import { languageModel, PROVIDER_OPTIONS } from '../../../../../lib/model-providers.mjs';
 import { audit } from '../../../../../lib/audit.mjs';
+import { refreshModelSettings } from '../../../../../lib/model-settings.mjs';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -13,6 +14,7 @@ export const maxDuration = 120;
 export async function POST(request) {
   const { response, viewer } = await requireAdmin(request, { write: true });
   if (response) return response;
+  await refreshModelSettings();
   if (!chatConfigured()) return failure('topics_need_model', 503);
   const params = new URL(request.url).searchParams;
   const options = { days: params.get('days'), diveKey: params.get('dive') || undefined, group: params.get('group') || undefined };

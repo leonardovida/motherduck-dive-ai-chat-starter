@@ -5,11 +5,14 @@ import { DEFAULT_APP_TITLE } from '../src/lib/app-meta.mjs';
 import { demoDives, publicDemo } from '../lib/public-demo.mjs';
 import { diveIdentity } from '../lib/groups.mjs';
 import { adminConfigured } from '../lib/motherduck-admin.mjs';
+import { refreshModelSettings } from '../lib/model-settings.mjs';
 
 export default async function handler(request, response) {
   const viewer = await getViewer(request.headers);
   if (!viewer) return send(response, 401, { error: 'authentication_required' });
   if (request.method !== 'GET') return send(response, 405, { error: 'method_not_allowed' });
+  // Whether chat is on can depend on providers chosen in the admin Models tab.
+  await refreshModelSettings();
   // Viewers see only the Dives their account may open; chat is hidden when they lack chat access.
   const configured = publicDemo() ? demoDives(listDives()) : listDives();
   // A data group's members can chat only where the group's service account can read the chat

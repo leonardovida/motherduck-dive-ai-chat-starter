@@ -1,5 +1,5 @@
 import * as React from "react";
-import { ArrowLeft, Ban, ChartColumn, Check, CheckCheck, Copy, Database, Download, History, KeyRound, Link2, MessageSquare, Pencil, Plus, RefreshCw, Search, ShieldCheck, ThumbsDown, ThumbsUp, Trash2, UserMinus, UserPlus, Users, UsersRound } from "lucide-react";
+import { ArrowLeft, Ban, Bot, ChartColumn, Check, CheckCheck, Copy, Database, Download, History, KeyRound, Link2, MessageSquare, Pencil, Plus, RefreshCw, Search, ShieldCheck, ThumbsDown, ThumbsUp, Trash2, UserMinus, UserPlus, Users, UsersRound } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -9,6 +9,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 import { MessageResponse } from "@/components/ai-elements/message";
 import { authClient } from "@/lib/auth-client.js";
+import ModelsTab from "./ModelsTab.jsx";
 
 // All interface text in one place, like the main app.
 const COPY = {
@@ -20,6 +21,7 @@ const COPY = {
   conversations: "Conversations",
   questions: "Questions",
   activity: "Activity",
+  models: "Models",
   accountsOff: "Accounts are not turned on",
   accountsOffBody: "Set MOTHERDUCK_APP_TOKEN, run npm run db:migrate and create the first admin with npm run admin:create. See docs/accounts.md.",
   signIn: "Sign in as an administrator to open this page.",
@@ -253,6 +255,7 @@ const COPY = {
     "group.created": "Created group", "group.updated": "Changed group", "group.deleted": "Deleted group", "group.member_added": "Added to a group",
     "group.member_removed": "Removed from a group", "group.service_account_created": "Created the service account of",
     "access_sync.run": "Synced MotherDuck access", "access_sync.confirmed": "Marked the MotherDuck SQL as done", "conversation.deleted": "Deleted a conversation", "questions.exported": "Exported the chat questions", "questions.classified": "Grouped questions into topics", "questions.digest_sent": "Sent the questions digest",
+    "models.updated": "Changed the chat models", "models.reset": "Reset the chat models to the environment",
   },
   grantee: "Who",
   share: "Share",
@@ -1341,7 +1344,7 @@ function ConversationsTab({ users, dives, initial }) {
   );
 }
 
-const tabFromHash = () => (typeof window !== "undefined" && /^#(users|groups|motherduck|activity|questions|conversations)$/.test(window.location.hash) ? window.location.hash.slice(1) : "users");
+const tabFromHash = () => (typeof window !== "undefined" && /^#(users|groups|motherduck|activity|questions|conversations|models)$/.test(window.location.hash) ? window.location.hash.slice(1) : "users");
 
 export default function AdminApp() {
   const [status, setStatus] = React.useState({ state: "loading" });
@@ -1401,7 +1404,7 @@ export default function AdminApp() {
   }, [load]);
 
   const admin = data.scope === "admin";
-  const tabs = [["users", COPY.users, Users], ...(admin ? [["groups", COPY.groups, UsersRound], ["motherduck", COPY.motherduck, Database], ["activity", COPY.activity, History], ["questions", COPY.questions, ChartColumn], ["conversations", COPY.conversations, MessageSquare]] : [["questions", COPY.questions, ChartColumn]])];
+  const tabs = [["users", COPY.users, Users], ...(admin ? [["groups", COPY.groups, UsersRound], ["motherduck", COPY.motherduck, Database], ["activity", COPY.activity, History], ["questions", COPY.questions, ChartColumn], ["conversations", COPY.conversations, MessageSquare], ["models", COPY.models, Bot]] : [["questions", COPY.questions, ChartColumn]])];
   const shown = tabs.some(([key]) => key === tab) ? tab : "users";
   React.useEffect(() => { if (status.state === "ready" && shown === "motherduck") loadSync(); }, [status.state, shown, loadSync]);
   // Arrow keys move between tabs, as in any tab list.
@@ -1442,6 +1445,7 @@ export default function AdminApp() {
         {status.state === "ready" && admin && shown === "activity" && <ActivityTab />}
         {status.state === "ready" && shown === "questions" && <QuestionsTab dives={data.dives} onOpen={admin ? id => { setOpenConversation(id); setTab("conversations"); window.scrollTo({ top: 0 }); } : undefined} />}
         {status.state === "ready" && admin && shown === "conversations" && <ConversationsTab key={openConversation ?? "all"} users={data.users} dives={data.dives} initial={openConversation} />}
+        {status.state === "ready" && admin && shown === "models" && <ModelsTab demo={Boolean(status.demo)} />}
       </main>
       <DemoToast message={toast} />
       </ReadOnly.Provider>

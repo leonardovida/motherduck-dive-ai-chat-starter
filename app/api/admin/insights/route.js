@@ -5,6 +5,7 @@ import { publicDemo } from '../../../../lib/public-demo.mjs';
 import { modelPrices } from '../../../../lib/budgets.mjs';
 import { digestWebhook } from '../../../../lib/digest.mjs';
 import { chatConfigured } from '../../../../lib/chat-models.mjs';
+import { refreshModelSettings } from '../../../../lib/model-settings.mjs';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -28,6 +29,7 @@ export async function GET(request) {
       return Response.json({ rows: managed ? rows.map(({ conversation_id, ...row }) => row) : rows }, { headers: NO_STORE });
     }
     const prices = modelPrices();
+    if (!managed) await refreshModelSettings();
     const [summary, facets] = await Promise.all([insights.summary({ ...options, prices }), managed ? { dives: [], groups: managed.map(item => item.name) } : insights.facets()]);
     return Response.json({
       ...summary, facets, scope: managed ? 'manager' : 'admin',

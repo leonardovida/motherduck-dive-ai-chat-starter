@@ -8,6 +8,7 @@ import { createDataTools, createChatReaderSession } from '../../../lib/chat-data
 import { MAX_ROWS } from '../../../lib/sql-guard.mjs';
 import { AUTO, MODEL_KEYS, TIERS, chatConfigured, enabledModelKeys, modelCatalog, resolveModel, routerEnabled, tierModel, utilityModel } from '../../../lib/chat-models.mjs';
 import { languageModel, PROVIDER_OPTIONS } from '../../../lib/model-providers.mjs';
+import { refreshModelSettings } from '../../../lib/model-settings.mjs';
 import { classifyRoute, escalation, routeQuestion } from '../../../lib/model-router.mjs';
 import { canSeeDive, getViewer } from '../../../lib/viewer.mjs';
 import { randomUUID } from 'node:crypto';
@@ -38,6 +39,7 @@ const textOf = message => message?.parts.map(p => p.text).join('') ?? '';
 // The picker reads only which tiers are enabled; ids, providers and limits stay on the server.
 export async function GET(request) {
   if (!await getViewer(request.headers)) return failure('authentication_required', 401);
+  await refreshModelSettings();
   return Response.json({ ...modelCatalog(), recording: recordingEnabled(), ...(publicDemo() ? { publicDemo: true, retentionDays: retentionDays() } : {}) }, { headers: NO_STORE });
 }
 
@@ -66,6 +68,8 @@ export async function POST(request) {
   if (window && window.until > now && window.count >= 20) return failure('chat_rate_limited', 429);
   usage.set(limitKey, { until: window?.until > now ? window.until : now + 60000, count: window?.until > now ? window.count + 1 : 1 });
   if (usage.size > 500) for (const [k, v] of usage) if (v.until < now) usage.delete(k);
+  // Model choices saved in the admin Models tab apply without a restart (lib/model-settings.mjs).
+  await refreshModelSettings();
   if (!chatConfigured()) return failure('chat_not_configured', 503);
   // A group's monthly allowance is counted from saved answers, so it applies only while they are saved.
   if (viewer.mode === 'accounts' && recordingEnabled()) {
