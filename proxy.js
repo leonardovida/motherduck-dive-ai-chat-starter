@@ -1,4 +1,5 @@
-import { NextResponse } from "next/server";
+// The explicit file lets plain Node load this module too, for test/security-routes.test.mjs.
+import { NextResponse } from "next/server.js";
 
 function contentSecurityPolicy(nonce) {
   return [

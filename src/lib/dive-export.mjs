@@ -1,5 +1,6 @@
-export const DIVE_ORIGIN = 'https://embed-motherduck.com';
-export const MAX_EXPORT_BYTES = 20 * 1024 * 1024;
+// Where embedded Dives run. Messages from any other origin, or another window, are ignored.
+export const EMBED_ORIGIN = 'https://embed-motherduck.com';
+const MAX_EXPORT_BYTES = 20 * 1024 * 1024;
 const MIME = {
   csv: 'text/csv',
   xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -9,9 +10,13 @@ const MIME = {
 // Plain file names only: no paths, no leading dot, extension must match the format.
 const FILENAME = /^[A-Za-z0-9][\w .-]{0,150}\.(csv|xlsx|json|parquet)$/;
 
-export function receiveDiveExport(event, frameWindow, pending) {
-  if (!frameWindow || event.source !== frameWindow || event.origin !== DIVE_ORIGIN) return null;
-  const message = event.data;
+export function fromDiveFrame(event, frameWindow) {
+  return Boolean(frameWindow) && event.source === frameWindow && event.origin === EMBED_ORIGIN;
+}
+
+// Reads an export message from a Dive frame (check fromDiveFrame first). Returns null for
+// anything that is not an export message.
+export function receiveDiveExport(message, pending) {
   if (!message || typeof message !== 'object' || !['export-started', 'export-file', 'export-error'].includes(message.type)) return null;
   const { requestId, format, filename } = message;
   if (typeof requestId !== 'string' || requestId.length > 128 || !MIME[format]) return null;
@@ -37,15 +42,3 @@ export function receiveDiveExport(event, frameWindow, pending) {
   return { type: 'file', filename, mimeType: message.mimeType, data: message.data };
 }
 
-// The Dive runtime generates the file. The host delivers those bytes to the browser.
-export function downloadDiveExport(file) {
-  const url = URL.createObjectURL(new Blob([file.data], { type: file.mimeType }));
-  const anchor = document.createElement('a');
-  anchor.href = url;
-  anchor.download = file.filename;
-  anchor.style.display = 'none';
-  document.body.append(anchor);
-  anchor.click();
-  anchor.remove();
-  window.setTimeout(() => URL.revokeObjectURL(url), 60000);
-}

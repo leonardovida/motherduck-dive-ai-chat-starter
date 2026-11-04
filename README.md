@@ -16,7 +16,7 @@
 - **An AI analyst next to it.** Viewers ask questions in plain English. The assistant looks up the tables, runs read-only SQL and streams back an answer.
 - **Answers you can check.** Every answer has a "SQL receipt" showing the exact queries behind it.
 - **Context-aware follow-ups.** When a viewer picks a filter in the dashboard, the assistant knows about it. "What about this region?" just works.
-- **OpenAI or Anthropic, sized to the question.** On **Auto**, simple questions go to a small, cheap model and hard ones to a larger one. The app moves up a tier on its own if the small model struggles.
+- **Your choice of models, sized to the question.** Use OpenAI, Anthropic, OpenRouter, Azure OpenAI / Microsoft Foundry, Amazon Bedrock, Google Vertex AI or a self-hosted OpenAI-compatible server, set by environment variables or in the admin **Models** tab ([model providers](docs/model-providers.md)). On **Auto**, simple questions go to a small, cheap model and hard ones to a larger one. The app moves up a tier on its own if the small model struggles.
 - **People, access and an admin portal (optional).** Give each person their own login, choose which dashboards and whether AI chat they get, connect your single sign-on, and read past conversations.
 - **Ready for your customers.** Paste a list of people and send each one a setup link to choose their own password. Put each customer in a group with its own MotherDuck service account and data, and let their own manager add colleagues.
 - **Access that stays in step with MotherDuck.** Give someone a dashboard and the app grants the shares behind it in MotherDuck, then takes them back when access is removed.
@@ -161,7 +161,9 @@ Sign in, then open **Admin** in the sidebar. There you can:
 - **Serve customers:** give a customer's group its own MotherDuck service account and databases, and make someone on their side a **group manager**.
 - **Keep MotherDuck in step:** with `MOTHERDUCK_ADMIN_TOKEN`, granting a dashboard also grants the shares behind it in MotherDuck. Without it, the portal shows the SQL to run.
 - **Read conversations:** every question, answer and SQL query, with the model that answered.
-- **Track questions:** what people ask, how each answer went and how they rated it, by Dive, group and model, with a CSV export and a `chat_questions` view to query in MotherDuck.
+- **Track questions:** what people ask, how each answer went and how they rated it (with a reason for a thumbs down), by Dive, group, model and topic, with an estimated cost, a weekly Slack digest, a CSV export and a `chat_questions` view to query in MotherDuck. Group managers see the questions of their own groups.
+- **Set allowances:** a monthly token allowance per group, so one team or customer cannot run up the model bill.
+- **Pick up where you left off:** people reopen, search and delete their own past conversations from the chat panel.
 - **See who changed what:** the **Activity** tab lists every change to people, access, groups and MotherDuck grants.
 - **Bring SSO domains straight into groups:** `AUTH_DOMAIN_GROUPS` puts people from a company's email domain into its group on their first sign-in.
 
@@ -215,7 +217,7 @@ flowchart LR
   Browser[Dashboard and chat UI] --> App[Next.js server]
   App --> Session[MotherDuck embed-session API]
   Session --> Frame[Sandboxed Dive iframe]
-  App --> Model[OpenAI via AI SDK]
+  App --> Model[Model provider via AI SDK]
   Model --> Tools[State and read-only SQL tools]
   Tools --> Data[MotherDuck Postgres endpoint]
 ```
@@ -229,7 +231,6 @@ flowchart LR
 | `npm run --silent setup -- --json` | The same check as JSON for agents, with chat required. |
 | `npm run db:migrate` | Creates or updates the app database tables (accounts mode). |
 | `npm run admin:create -- --username=<name>` | Creates an administrator, or resets their password. |
-| `npm run smoke:openai` | Sends one minimal real request to OpenAI. |
 | `npm run release:check` | Confirms the version, release notes and changelog agree. |
 
 Where things live:
@@ -242,10 +243,10 @@ Where things live:
 - `src/admin/AdminApp.jsx` and `app/api/admin/`: the admin portal.
 - `lib/auth.mjs`, `lib/viewer.mjs`: accounts, SSO and who may open what.
 - `lib/chat-models.mjs`, `lib/model-router.mjs`: providers, tiers and Auto routing.
-- `api/` and `lib/`: sign-in, embed sessions, the SQL guard, request limits and saved conversations.
+- `app/api/` and `lib/`: sign-in, embed sessions, the SQL guard, request limits and saved conversations.
 - `test/`: regression tests that need no credentials.
 
-More detail: [configuration](docs/configuration.md), [accounts and SSO](docs/accounts.md), [models and routing](docs/model-routing.md), [architecture](docs/architecture.md), [verification record](docs/verification.md) and [agent setup](docs/agent-setup.md). CI runs the tests and a build without secrets. The optional manual **Checks** workflow can also run the OpenAI smoke test with a repository secret. Repository secrets never configure the deployed app.
+More detail: [configuration](docs/configuration.md), [accounts and SSO](docs/accounts.md), [models and routing](docs/model-routing.md), [architecture](docs/architecture.md), [verification record](docs/verification.md) and [agent setup](docs/agent-setup.md). CI runs the tests and a build without secrets. Repository secrets never configure the deployed app.
 
 ## License
 

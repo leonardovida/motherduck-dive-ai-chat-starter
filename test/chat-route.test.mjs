@@ -41,12 +41,12 @@ Object.assign(process.env, {
   SESSION_SECRET: SECRET,
   OPENAI_API_KEY: 'fixture-openai-key',
   OPENAI_BASE_URL: `http://127.0.0.1:${server.address().port}/v1`,
-  OPENAI_MODEL: 'gpt-6-luna',
+  CHAT_DEFAULT_MODEL: 'gpt-6-luna',
   CHAT_FOLLOW_UPS: 'true',
   MOTHERDUCK_CHAT_TOKEN: 'fixture-chat-token',
   DIVE_OVERVIEW_CHAT_DATABASE: 'demo_db',
 });
-delete process.env.OPENAI_CHAT_MODELS;
+delete process.env.CHAT_MODELS;
 delete process.env.DIVE_EXPLORER_CHAT_DATABASE;
 
 const { GET, POST } = await import('../app/api/chat/route.js');

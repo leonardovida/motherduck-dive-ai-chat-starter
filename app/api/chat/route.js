@@ -1,17 +1,19 @@
-import { convertToModelMessages, createUIMessageStream, createUIMessageStreamResponse, generateText, isStepCount, Output, streamText, tool } from 'ai';
-import { toUIMessageStream } from 'ai';
+import { convertToModelMessages, createUIMessageStream, createUIMessageStreamResponse, generateText, isStepCount, Output, streamText, toUIMessageStream, tool } from 'ai';
 import { z } from 'zod';
 import { sameOrigin, sanitizeState, sessionCookie } from '../../../lib/security.mjs';
 import { PayloadTooLarge, readRequestText } from '../../../lib/request-body.mjs';
+import { NO_STORE, failure } from '../../../lib/admin-api.mjs';
 import { getDive } from '../../../lib/dives.mjs';
 import { createDataTools, createChatReaderSession } from '../../../lib/chat-data.mjs';
 import { MAX_ROWS } from '../../../lib/sql-guard.mjs';
 import { AUTO, MODEL_KEYS, TIERS, chatConfigured, enabledModelKeys, modelCatalog, resolveModel, routerEnabled, tierModel, utilityModel } from '../../../lib/chat-models.mjs';
 import { languageModel, PROVIDER_OPTIONS } from '../../../lib/model-providers.mjs';
+import { refreshModelSettings } from '../../../lib/model-settings.mjs';
 import { classifyRoute, escalation, routeQuestion } from '../../../lib/model-router.mjs';
 import { canSeeDive, getViewer } from '../../../lib/viewer.mjs';
 import { randomUUID } from 'node:crypto';
-import { createConversationStore, failedText, recordingEnabled, retentionDays, toolReceipts } from '../../../lib/conversations.mjs';
+import { conversationOwner, createConversationStore, failedText, recordingEnabled, retentionDays, toolReceipts } from '../../../lib/conversations.mjs';
+import { budgets } from '../../../lib/budgets.mjs';
 import { publicDemo } from '../../../lib/public-demo.mjs';
 import { diveIdentity } from '../../../lib/groups.mjs';
 import { motherDuckAdmin } from '../../../lib/motherduck-admin.mjs';
@@ -20,7 +22,6 @@ export const runtime = 'nodejs';
 // Deeper tiers explore over several tool steps; 300s is the Fluid compute default.
 export const maxDuration = 300;
 const usage = new Map();
-const NO_STORE = { 'Cache-Control': 'private, no-store' };
 const UNAVAILABLE = 'Chat is temporarily unavailable. Try again.';
 const requestSchema = z.object({
   dive: z.string().max(40),
@@ -28,15 +29,15 @@ const requestSchema = z.object({
   previousModel: z.enum(MODEL_KEYS).optional(),
   conversationId: z.string().max(64).optional(),
   state: z.record(z.string(), z.unknown()).default({}),
-  messages: z.array(z.object({ id: z.string().max(200), role: z.enum(['user', 'assistant']), parts: z.array(z.record(z.string(), z.unknown())).max(100) }).passthrough()).min(1).max(24),
-}).passthrough();
+  messages: z.array(z.object({ id: z.string().max(200), role: z.enum(['user', 'assistant']), parts: z.array(z.record(z.string(), z.unknown())).max(100) }).loose()).min(1).max(24),
+}).loose();
 const followUpSchema = z.object({ questions: z.array(z.string().min(3).max(90)).max(3) });
-const failure = (error, status) => Response.json({ error }, { status, headers: NO_STORE });
 const textOf = message => message?.parts.map(p => p.text).join('') ?? '';
 
 // The picker reads only which tiers are enabled; ids, providers and limits stay on the server.
 export async function GET(request) {
   if (!await getViewer(request.headers)) return failure('authentication_required', 401);
+  await refreshModelSettings();
   return Response.json({ ...modelCatalog(), recording: recordingEnabled(), ...(publicDemo() ? { publicDemo: true, retentionDays: retentionDays() } : {}) }, { headers: NO_STORE });
 }
 
@@ -54,18 +55,26 @@ async function followUps({ title, question, answer, abortSignal }) {
 }
 
 export async function POST(request) {
-  const headers = Object.fromEntries(request.headers.entries());
   const viewer = await getViewer(request.headers, process.env, undefined, { fresh: true });
   if (!viewer) return failure('authentication_required', 401);
-  if (!sameOrigin({ headers })) return failure('origin_not_allowed', 403);
+  if (!sameOrigin(request)) return failure('origin_not_allowed', 403);
   if (!viewer.chat) return failure('chat_not_allowed', 403);
   // Public demo visitors share one account, so they are limited per session instead.
-  const limitKey = viewer.mode !== 'accounts' ? sessionCookie({ headers }) : publicDemo() ? viewer.sessionId ?? viewer.id : viewer.id;
+  const limitKey = viewer.mode !== 'accounts' ? sessionCookie(request) : publicDemo() ? viewer.sessionId ?? viewer.id : viewer.id;
   const now = Date.now(), window = usage.get(limitKey);
   if (window && window.until > now && window.count >= 20) return failure('chat_rate_limited', 429);
   usage.set(limitKey, { until: window?.until > now ? window.until : now + 60000, count: window?.until > now ? window.count + 1 : 1 });
   if (usage.size > 500) for (const [k, v] of usage) if (v.until < now) usage.delete(k);
+  // Model choices saved in the admin Models tab apply without a restart (lib/model-settings.mjs).
+  await refreshModelSettings();
   if (!chatConfigured()) return failure('chat_not_configured', 503);
+  // A group's monthly allowance is counted from saved answers, so it applies only while they are saved.
+  if (viewer.mode === 'accounts' && recordingEnabled()) {
+    try {
+      const exhausted = await budgets().exhausted(viewer);
+      if (exhausted) return Response.json({ error: 'chat_budget_reached', group: exhausted.name, resetsAt: exhausted.resetsAt }, { status: 429, headers: NO_STORE });
+    } catch (error) { console.error('budget_check_failed', error?.code ?? error?.name); }
+  }
   let body;
   try {
     const text = await readRequestText(request, 100000);
@@ -116,7 +125,7 @@ Answer with the conclusion first and the supporting numbers after. Name the tabl
   let conversationId = null;
   const questionId = randomUUID(), answerId = randomUUID();
   if (store) {
-    try { conversationId = await store.startTurn({ conversationId: body.conversationId, viewer, diveKey: dive.key, question: textOf(messages.at(-1)), questionId, state }); }
+    try { conversationId = await store.startTurn({ conversationId: body.conversationId, viewer, diveKey: dive.key, question: textOf(messages.at(-1)), questionId, state, sessionId: conversationOwner(viewer, publicDemo()).sessionId }); }
     catch (error) { console.error('conversation_save_failed', error?.code ?? error?.name); }
   }
   const metadata = extra => ({ model: model.key, auto: Boolean(route), ...(route ? { routeReason: [route.reason, ...escalations].join('; ') } : {}), ...(conversationId ? { conversationId, answerId } : {}), ...extra });
@@ -124,7 +133,7 @@ Answer with the conclusion first and the supporting numbers after. Name the tabl
     onError: () => UNAVAILABLE,
     execute: async ({ writer }) => {
       try {
-      let failed = false; const started = Date.now(); let answerStarted = null;
+      let failed = false; const started = Date.now(); let answerStarted = null; let partial = '';
       // In auto mode the run may escalate, so it gets the step and output budget of the deepest tier.
       const budget = route ? TIERS[enabled.at(-1)] : model;
       const result = streamText({
@@ -140,9 +149,20 @@ Answer with the conclusion first and the supporting numbers after. Name the tabl
       // Pipe the answer in order, then append follow-ups and a single finish chunk.
       const reader = toUIMessageStream({ stream: result.stream, sendFinish: false, sendReasoning: true, messageMetadata: ({ part }) => (part.type === 'start' ? metadata() : undefined), onError: () => { failed = true; return UNAVAILABLE; } }).getReader();
       // Text written between tool steps is narration; the answer starts with the last step's text.
-      for (;;) { const { done, value } = await reader.read(); if (done) break; if (value.type === 'start-step') answerStarted = null; else if (value.type === 'text-start' && answerStarted == null) answerStarted = Date.now(); writer.write(value); }
-      const answer = failed || request.signal.aborted ? '' : await Promise.resolve(result.text).catch(() => '');
-      if (answer.trim() && process.env.CHAT_FOLLOW_UPS === 'true') {
+      // The text streamed so far is kept, so a stopped answer is saved as far as it got.
+      try {
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (value.type === 'start-step') { answerStarted = null; partial = ''; }
+          else if (value.type === 'text-start' && answerStarted == null) answerStarted = Date.now();
+          else if (value.type === 'text-delta') partial += value.delta ?? '';
+          writer.write(value);
+        }
+      } catch (error) { if (!request.signal.aborted) throw error; }
+      const stopped = request.signal.aborted && !failed;
+      const answer = failed ? '' : stopped ? partial.trim() : await Promise.resolve(result.text).catch(() => '');
+      if (!stopped && answer.trim() && process.env.CHAT_FOLLOW_UPS === 'true') {
         const abortSignal = AbortSignal.any([request.signal, AbortSignal.timeout(2500)]);
         const questions = await followUps({ title: dive.title, question: textOf(messages.at(-1)), answer, abortSignal }).catch(() => []);
         if (questions.length) writer.write({ type: 'data-followups', id: 'followups', data: { questions } });
@@ -152,11 +172,9 @@ Answer with the conclusion first and the supporting numbers after. Name the tabl
       if (store && conversationId) {
         try {
           const steps = await Promise.resolve(result.steps).catch(() => []);
-          const totals = await Promise.resolve(result.totalUsage).catch(() => null);
-          const status = answer ? 'answered' : request.signal.aborted && !failed ? 'stopped' : 'failed';
+          const totals = await Promise.resolve(result.usage).catch(() => null);
+          const status = stopped ? 'stopped' : answer ? 'answered' : 'failed';
           await store.finishTurn({ conversationId, answerId, replyTo: questionId, status, answer: answer || failedText(status === 'failed'), tools: toolReceipts(steps), model, routeReason: metadata().routeReason, usage: totals, workedMs });
-          const days = retentionDays();
-          if (days && Math.random() < 0.02) await store.purgeOlderThan(days);
         } catch (error) { console.error('conversation_save_failed', error?.code ?? error?.name); }
       }
       } finally {

@@ -33,7 +33,9 @@ Turn it on only when the user asks for per-person logins, an admin portal, SSO o
 
 ## Models and routing
 
-Chat works with `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` or both. Ask which provider the user has. Do not ask them to choose model IDs: the defaults and Auto routing in [docs/model-routing.md](docs/model-routing.md) are the starting point. Change routing rules only with a test case in `test/model-router.test.mjs`.
+Chat works with OpenAI, Anthropic, OpenRouter, Azure OpenAI / Microsoft Foundry, Amazon Bedrock, Google Vertex AI, or a self-hosted or other OpenAI-compatible server (vLLM, Ollama, LM Studio, TGI, LiteLLM). Ask which provider the user has, then request only that provider's variables by name from [docs/model-providers.md](docs/model-providers.md); `npm run --silent setup -- --json` lists them for the default provider. Do not ask them to choose model IDs: the defaults and Auto routing in [docs/model-routing.md](docs/model-routing.md) are the starting point. For a self-hosted server, ask for its base URL and model name, and confirm the model supports tool calling.
+
+Credentials stay in environment variables. Never put keys, AWS secrets, service-account JSON or tokens in the app database, the admin portal or a URL. In accounts mode, administrators can change providers and models in **Admin > Models** and press **Test**; saved choices take precedence over environment variables. Change routing rules only with a test case in `test/model-router.test.mjs`.
 
 ## Settings reference
 

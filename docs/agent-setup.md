@@ -70,7 +70,7 @@ Run that check with the deployed runtime values injected. A local check does not
 
 The agent also configures the host's trusted client-IP source. On Vercel, `VERCEL=1` selects the platform-overwritten `x-forwarded-for` header automatically ([contract](https://vercel.com/docs/headers/request-headers#x-forwarded-for)). On other hosts, set `AUTH_TRUSTED_IP_HEADER` only to a single-IP header the trusted proxy overwrites on every request. This is a non-secret deployment setting. The production setup check reports it missing when needed; sign-in refuses to use a shared fallback.
 
-**GitHub Actions secrets are optional and separate.** The application does not read them. CI tests and builds need no credentials. Add `OPENAI_API_KEY` there only if you choose to use the optional workflow smoke test. There is no required third copy of every app secret in GitHub.
+**GitHub Actions secrets are optional and separate.** The application does not read them. CI tests and builds need no credentials. There is no required third copy of every app secret in GitHub.
 
 ## What completion looks like
 

@@ -51,7 +51,7 @@ When `MOTHERDUCK_APP_TOKEN` is set, the shared `DEMO_PASSWORD` is no longer acce
 - **Find people** filters by name, email, MotherDuck username or group. **Export CSV** downloads everyone with their role, groups and last sign-in. The list shows the newest 1,000 people.
 - **Make admin**, **Disable** and **Delete** ask once more before they take effect, in place. So does **Delete group**, which says how many members lose the group's access.
 - **Edit access** picks the Dives a person can open, whether they can use AI chat, and their **MotherDuck username** (see [Mirror access onto MotherDuck](#mirror-access-onto-motherduck)). Unticking every Dive means no Dives of their own; they keep what their groups give them. Chat and new dashboard sessions check access on every request, so changes apply immediately. The Dive list in the sidebar updates within a minute.
-- **Disable** blocks sign-in and ends the person's sessions. **Delete** removes the account. Their saved conversations stay until deleted or expired.
+- **Disable** blocks sign-in and ends the person's sessions. **Delete** removes the account. Tick **Also delete their saved conversations** to remove those as well; otherwise they stay until deleted or expired. Both are recorded in **Activity**.
 - The portal does not let you demote, disable or delete yourself, so there is always at least one administrator.
 
 **Groups**
@@ -62,19 +62,20 @@ When `MOTHERDUCK_APP_TOKEN` is set, the shared `DEMO_PASSWORD` is no longer acce
 - Tick **Manager** next to a member to let them look after the group's people (see [Group managers](#group-managers)).
 - **MotherDuck service account (optional).** Members of a group with a service account open Dives and ask questions as that account instead of the shared one. This is how one deployment serves several customers, each seeing only their own data. See [Serve your customers](#serve-your-customers).
 - **Databases for this group** replace a Dive's database, by its alias, for that group only. For example, the Explorer Dive reads alias `demo`; Acme's group points `demo` at `md:_share/acme_data/...` and Globex's at `md:_share/globex_data/...`.
+- **Monthly AI chat allowance (optional).** A number of tokens the group's members may use in a calendar month (UTC), at least 1,000. Usage counts the tokens of every saved answer to a question asked as a member of the group. Once it is used up, members are told when it resets, on the 1st, and cannot ask more until then. A person in several capped groups is stopped when any of them runs out. Administrators are not limited. The group card shows this month's usage. The allowance needs saved conversations, so it has no effect with `CHAT_HISTORY=off`, and usage is cached for up to 30 seconds, so a busy group can go slightly over.
 - A person can belong to only one group with a service account, so their MotherDuck identity is never ambiguous, and two groups cannot share one service account. If **Create it in MotherDuck** finds the name already taken in MotherDuck, the app uses that account as it is, so pick names that only the app uses.
 - **A group with a service account decides on its own.** Every member reads data as the same service account, so a member sees exactly that group's Dives and chat. Their own access and their other groups add nothing, and the service account is granted only the group's Dives. Joining such a group clears the person's own access, so leaving it later does not fall back to the shared identity's Dives. Giving an existing group a service account does the same for its members.
 
 **MotherDuck access** shows every grant the app has made or is waiting to make, and the SQL to run when the app is not allowed to make them itself.
 
-**Activity** lists who changed what, newest first: people added, access changed, people disabled or deleted, setup links and passwords set, roles, groups and their members, service accounts created, MotherDuck syncs, deleted conversations and question exports. Filter by a person's name or by the kind of change. Entries never hold passwords, setup links or tokens.
+**Activity** lists who changed what, newest first: people added, access changed, people disabled or deleted, setup links and passwords set, roles, groups and their members, service accounts created, MotherDuck syncs, deleted conversations, question exports, topic grouping and digests sent. Filter by a person's name or by the kind of change. Entries never hold passwords, setup links or tokens.
 
 **People change their own password** from **Change password** in the sidebar. It signs them out everywhere else. People who sign in with single sign-on are told to change it with their identity provider. A public demo hides it.
 
 **Conversations**
 
-- Filter by person or Dive, search by the first question, or show only conversations that need attention: a failed or stopped answer, or a thumbs down.
-- Open a conversation to see each question and answer. Each question shows the asker's groups and the Dive state it was asked about. Each answer shows its outcome and rating, the model and provider, the routing reason (see [model routing](model-routing.md)), token counts, time taken and every tool step with its SQL.
+- Filter by person or Dive, search the questions asked, or show only conversations that need attention: a failed or stopped answer, or a thumbs down.
+- Open a conversation to see each question and answer. Each question shows the asker's groups and the Dive state it was asked about. Each answer shows its outcome and rating (with the reason and note given for a thumbs down), the question's topic, the model and provider, the routing reason (see [model routing](model-routing.md)), token counts, time taken and every tool step with its SQL.
 - **Export JSON** downloads a conversation. **Delete** removes it.
 
 **Questions**
@@ -84,6 +85,10 @@ When `MOTHERDUCK_APP_TOKEN` is set, the shared `DEMO_PASSWORD` is no longer acce
 - A chart shows questions per day (UTC), with the part that needs attention on top.
 - **Needs attention** lists the newest failed or stopped answers and answers rated not helpful. **Most asked** groups questions that differ only in case, spacing or closing punctuation. Select either to open the conversation.
 - Splits by Dive, group and model show where questions come from and which tier answered them.
+- **Needs attention** also shows the reason and note the asker gave with a thumbs down.
+- **Estimated cost** appears when `MODEL_PRICES` is set (see [Estimate the cost](#estimate-the-cost)).
+- **Group into topics** asks the utility model (the cheapest enabled tier) to label up to 120 questions without a topic, in batches of 40, and to flag answers that said the data was not available. Press it again for more. Labels reuse existing topics where they fit. The split by topic and **Data people asked for but could not get** then show what people want and what a Dive is missing. Grouping sends the questions and the start of each answer to the model provider, and is recorded in **Activity**.
+- **Send digest now** posts the weekly digest (see [Weekly digest](#weekly-digest)) when `DIGEST_WEBHOOK_URL` is set.
 - **Export CSV** downloads the questions in the filter, without the answers, and is recorded in **Activity**. Cells that a spreadsheet would run as a formula start with a quote.
 
 ## Track questions in MotherDuck
@@ -99,6 +104,9 @@ When `MOTHERDUCK_APP_TOKEN` is set, the shared `DEMO_PASSWORD` is no longer acce
 | `answer_id`, `answer`, `answered_at` | The saved answer. |
 | `status` | `answered`, `failed`, `stopped`, or `unanswered` when no answer was saved. |
 | `feedback` | `1` for thumbs up, `-1` for thumbs down, empty when not rated. |
+| `feedback_reason`, `feedback_note` | With a thumbs down, the reason chosen (`wrong_numbers`, `misunderstood`, `missing_data`, `too_slow`, `other`) and an optional note of up to 500 characters. |
+| `group_ids` | The ids of the asker's groups (a JSON list), used for allowances and group managers. |
+| `topic`, `data_gap`, `classified_at` | Set by **Group into topics**: the topic label, whether the answer said the data was missing, and when it was labelled. |
 | `model_tier`, `model_provider`, `model_id`, `route_reason` | Which model answered and why (see [model routing](model-routing.md)). |
 | `input_tokens`, `output_tokens`, `worked_ms`, `tool_calls` | Cost and effort of the answer. |
 
@@ -121,7 +129,17 @@ WHERE status <> 'answered' OR feedback = -1
 ORDER BY asked_at DESC;
 ```
 
-The view reads the app database, which also holds accounts and sessions. Give a dashboard its own read-only copy, for example `CREATE TABLE analytics.chat_questions AS FROM dive_chat_app.chat_questions` on a schedule, rather than sharing the app database. Answers saved before this version have no groups or Dive state, and their status is read from the saved text.
+The view reads the app database, which also holds accounts and sessions. Give a dashboard its own read-only copy, for example `CREATE TABLE analytics.chat_questions AS FROM dive_chat_app.chat_questions` on a schedule, rather than sharing the app database.
+
+### Estimate the cost
+
+Set `MODEL_PRICES` to your provider's prices per million tokens for each tier, as `tier:input/output` pairs, for example `MODEL_PRICES=luna:0.25/2,sol:1.25/10,astra:5/25`. The **Questions** tab then shows an estimated cost for the period from the saved token counts. `MODEL_PRICE_CURRENCY` sets the three-letter currency shown (default `USD`). A tier without a price is named under the tile rather than counted as free. The estimate leaves out the classification request that Auto routing sometimes makes, follow-up suggestions and topic grouping, so compare it with your provider's bill.
+
+### Weekly digest
+
+Set `DIGEST_WEBHOOK_URL` to a Slack incoming webhook (`https` only) to post a summary every Monday at 08:00 UTC of the questions asked since the previous digest (the past week the first time): questions, people, the share answered, ratings, answers that said the data was missing, the five most asked questions and five that need attention, and a link to the **Questions** tab. On Vercel, `vercel.json` schedules `/api/cron/digest` and it needs `CRON_SECRET`; on other hosts, call it with `Authorization: Bearer <CRON_SECRET>` from your own scheduler. Each week is posted once, even with retries or several server instances. When a post fails, its questions are included in the next digest. **Send digest now** in the **Questions** tab posts one on demand.
+
+The digest contains questions as people typed them, so it copies question text into Slack, where it follows Slack's retention rather than `CHAT_RETENTION_DAYS`. Point it at a channel whose members may read conversations. Text is escaped so a question cannot mention a channel or add a link.
 
 ## Serve your customers
 
@@ -141,7 +159,7 @@ A manager of a group can open **Admin** and see only the people in the groups th
 - add people to their group (by list or one at a time), who get the group's access and nothing more;
 - create setup links, and disable, re-enable or remove people from their group.
 
-They cannot grant Dives, change roles, see administrators, edit groups or read conversations. Managers suit customer administrators and team leads.
+They can also open **Questions**, limited to questions asked as a member of the groups they manage, with the CSV export (without conversation ids). They cannot grant Dives, change roles, see administrators, edit groups, open conversations, group questions into topics or send the digest. Managers suit customer administrators and team leads.
 
 A manager acts only on people who belong to nothing but the groups that manager runs. People who are also in another group, who manage a group themselves, or who are administrators are listed but stay with the administrators. In addition:
 
@@ -162,7 +180,7 @@ When access is removed, or a person is disabled or deleted, the app revokes the 
 
 **Automatic mode.** Set `MOTHERDUCK_ADMIN_TOKEN` to an **Admin**'s token whose account owns the shares (only a share's owner can grant it). Every change in the portal then triggers a sync in the background, and **MotherDuck access → Sync now** runs one on demand, for example after fixing a failed grant. The app attaches shares for a service account through a five-minute token for that account, which it deletes afterwards. One sync runs at a time across every server instance; a change made during a sync is picked up by one more run straight after it. Removals run before grants, so a Dive alias that moves to another share is detached first and then attached to the new share.
 
-**A daily check.** On Vercel, `vercel.json` schedules `/api/cron/access-sync` once a day, so grants changed outside the app, or a sync that failed, are put right. Set `CRON_SECRET` (any random string of 16 or more characters) for the route to run; Vercel sends it automatically. On other hosts, call the route with `Authorization: Bearer <CRON_SECRET>` from your own scheduler.
+**A daily check.** On Vercel, `vercel.json` schedules `/api/cron/daily` once a day, so grants changed outside the app, or a sync that failed, are put right. The same run deletes messages older than `CHAT_RETENTION_DAYS`. Set `CRON_SECRET` (any random string of 16 or more characters) for the route to run; Vercel sends it automatically. On other hosts, call the route with `Authorization: Bearer <CRON_SECRET>` from your own scheduler.
 
 **Manual mode.** Without the token nothing changes in MotherDuck by itself. **MotherDuck access** lists what is waiting, and the exact SQL for the share owner to run, including the `REVOKE` and `DETACH` statements when access is taken away. After running it, press **Mark as done**: the grants and removals in the SQL on screen are settled. Anything that changed after the page loaded stays listed. Organizations that keep administrative tokens out of web apps can use this mode, and groups with a service account then have no chat.
 
@@ -181,11 +199,15 @@ In accounts mode conversations are saved by default, and the chat panel tells pe
 | Setting | Effect |
 | --- | --- |
 | `CHAT_HISTORY=off` | Nothing is saved, and the notice disappears. |
-| `CHAT_RETENTION_DAYS=90` | Messages older than 90 days are deleted automatically. |
+| `CHAT_RETENTION_DAYS=90` | Messages older than 90 days are deleted by the daily scheduled run (`/api/cron/daily`, which needs `CRON_SECRET`). Their tokens then no longer count toward a group's monthly allowance, so keep it at 31 days or more when you use allowances. |
 
 Saved answers keep the SQL and row counts, but **never the result rows**, so the app database does not become a copy of your data. Each question also keeps the asker's group names and the Dive's state (its filters and selections, up to 8 KB). Tell your users how long you keep conversations and who can read them.
 
-Below each answer the asker can choose **Helpful** or **Not helpful**. Pressing the same button again removes the rating. Only the person who asked can rate an answer, and the buttons appear only when conversations are saved.
+Below each answer the asker can choose **Helpful** or **Not helpful**. Pressing the same button again removes the rating. After **Not helpful** the panel asks why (wrong numbers, misunderstood the question, data is missing, too slow, something else) with an optional note; **Skip** leaves just the rating. Only the person who asked can rate an answer, and the buttons appear only when conversations are saved.
+
+**Past conversations** in the chat header lists the person's own saved conversations for the current Dive, newest first, with a search over their questions. Opening one restores it with its ratings, and a new question continues it. People can delete their own conversations there. They see only their own, never anyone else's.
+
+When someone presses **Stop**, the text streamed so far is kept and saved with the status `stopped`.
 
 ## Single sign-on
 
@@ -241,12 +263,13 @@ Grant access to the app in your identity provider too, for example by assigning 
 - Model tiers left out of `CHAT_MODELS` stay in the picker, greyed out with the same message.
 - The chat panel tells visitors that their conversations are visible to every other visitor.
 - The chat limit of 20 questions a minute applies to each visitor's session rather than to the shared account.
+- **Past conversations** and ratings belong to each visitor's session, so visitors cannot rate or reopen each other's answers. They cannot delete conversations.
 
 To set one up:
 
 1. Set up accounts mode as above, and create the shared account with `npm run admin:create -- --username=demo`.
 2. While `PUBLIC_DEMO` is still off, add a few example people in the admin portal, so visitors have something to look at. Use made-up names and no real email addresses, because every visitor can see them.
-3. Set `PUBLIC_DEMO=true`, `CHAT_MODELS=luna` (or the tiers you want to pay for) and a short `CHAT_RETENTION_DAYS`, such as `7`.
+3. Set `PUBLIC_DEMO=true`, `CHAT_MODELS=luna` (or the tiers you want to pay for) and a short `CHAT_RETENTION_DAYS`, such as `7`, with `CRON_SECRET` so the daily run deletes old conversations.
 4. Publish the username and password where you want visitors to find them, and set `PUBLIC_DEMO_SIGN_IN_URL` to that page so the sign-in page links to it. Set a monthly spending limit with your model provider, because anyone with the sign-in can ask questions.
 
 ## How it is built
@@ -255,7 +278,8 @@ To set one up:
 - `lib/viewer.mjs` resolves who is asking and what they may open, for both the shared password and accounts. `/api/dives`, `/api/embed`, `/api/chat` and the admin routes all use it.
 - `lib/app-db-schema.mjs` generates DuckDB tables from Better Auth's own schema. Better Auth's migrator expects Postgres catalog functions that MotherDuck does not have, so `npm run db:migrate` owns the schema and Better Auth's start-up schema check is switched off.
 - `lib/conversations.mjs` stores conversations with parameterized SQL. A person can only continue, and rate answers in, their own conversations (`/api/chat/feedback`).
-- `lib/insights.mjs` reads the `chat_questions` view for the **Questions** tab (`/api/admin/insights`). Every filter is a parameter and the period is at most 365 days.
+- `lib/insights.mjs` reads the `chat_questions` view for the **Questions** tab (`/api/admin/insights`). Every filter is a parameter and the period is at most 365 days. Group managers get a filter on `group_ids` for their groups.
+- `lib/budgets.mjs` sums this month's tokens per capped group and checks them before each question. `lib/topics.mjs` labels questions with the utility model and writes only the ids it sent. `lib/digest.mjs` builds and posts the weekly digest, claiming each week once in the `app_job` table.
 - Admin routes require an administrator session, a fresh session lookup and a same-origin request for changes.
 - `lib/public-demo.mjs` holds the public demo switch and the short list of account endpoints a demo visitor may reach.
 - `lib/groups.mjs` folds group access into each viewer and picks the MotherDuck identity for each Dive (`diveIdentity`). If groups cannot be read, the person gets no Dives rather than the wrong data.

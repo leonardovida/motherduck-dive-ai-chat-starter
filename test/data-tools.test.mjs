@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { bindReadParameters, createDataTools, createChatReaderSession, withChatReader } from '../lib/chat-data.mjs';
-import { receiveDiveExport } from '../src/lib/dive-export.mjs';
+import { fromDiveFrame, receiveDiveExport } from '../src/lib/dive-export.mjs';
 
 test('fixed SQL parameters become escaped literals', () => {
   assert.equal(bindReadParameters('SELECT $1, $2, $3', ["o'neil", 5, null]), "SELECT 'o''neil', 5, NULL");
@@ -111,14 +111,18 @@ test('Dive exports accept known formats from the frame only', () => {
   const pending = new Map();
   const event = (data) => ({ source: frame, origin: 'https://embed-motherduck.com', data });
   const bytes = (text) => new TextEncoder().encode(text).buffer;
-  assert.deepEqual(receiveDiveExport(event({ type: 'export-started', requestId: 'r1', format: 'parquet', filename: 'orders.parquet' }), frame, pending), { type: 'started' });
-  const bad = receiveDiveExport(event({ type: 'export-file', requestId: 'r1', format: 'parquet', filename: 'orders.parquet', data: bytes('nope'), byteLength: 4, mimeType: 'application/vnd.apache.parquet' }), frame, pending);
+  assert.deepEqual(receiveDiveExport({ type: 'export-started', requestId: 'r1', format: 'parquet', filename: 'orders.parquet' }, pending), { type: 'started' });
+  const bad = receiveDiveExport({ type: 'export-file', requestId: 'r1', format: 'parquet', filename: 'orders.parquet', data: bytes('nope'), byteLength: 4, mimeType: 'application/vnd.apache.parquet' }, pending);
   assert.deepEqual(bad, { type: 'error' });
-  receiveDiveExport(event({ type: 'export-started', requestId: 'r2', format: 'parquet', filename: 'orders.parquet' }), frame, pending);
-  const good = receiveDiveExport(event({ type: 'export-file', requestId: 'r2', format: 'parquet', filename: 'orders.parquet', data: bytes('PAR1data'), byteLength: 8, mimeType: 'application/vnd.apache.parquet' }), frame, pending);
+  receiveDiveExport({ type: 'export-started', requestId: 'r2', format: 'parquet', filename: 'orders.parquet' }, pending);
+  const good = receiveDiveExport({ type: 'export-file', requestId: 'r2', format: 'parquet', filename: 'orders.parquet', data: bytes('PAR1data'), byteLength: 8, mimeType: 'application/vnd.apache.parquet' }, pending);
   assert.equal(good.type, 'file');
   for (const filename of ['../x.csv', '.hidden.csv', 'x.exe', 'x.json']) {
-    assert.equal(receiveDiveExport(event({ type: 'export-started', requestId: 'r3', format: 'csv', filename }), frame, pending), null, filename);
+    assert.equal(receiveDiveExport({ type: 'export-started', requestId: 'r3', format: 'csv', filename }, pending), null, filename);
   }
-  assert.equal(receiveDiveExport({ ...event({ type: 'export-started', requestId: 'r4', format: 'csv', filename: 'a.csv' }), origin: 'https://evil.test' }, frame, pending), null);
+  assert.equal(receiveDiveExport({ type: 'dive-state-update', state: {} }, pending), null);
+  assert.equal(fromDiveFrame(event({}), frame), true);
+  assert.equal(fromDiveFrame({ ...event({}), origin: 'https://evil.test' }, frame), false);
+  assert.equal(fromDiveFrame(event({}), {}), false);
+  assert.equal(fromDiveFrame(event({}), null), false);
 });

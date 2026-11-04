@@ -30,7 +30,6 @@ npm run --silent setup -- --json --production # also checks sign-in settings
 | `MOTHERDUCK_EMBED_USERNAME` | Yes | The **read-only service account** the embedded Dive runs as. Viewers see only what this account can read. | The exact username of a service account in the same organization. |
 | `DIVE_OVERVIEW_ID` | Yes | The ID of the saved Dive to show. | The Dive's URL in MotherDuck, or `list_dives` in the MotherDuck MCP server. The included `dives/starter.tsx` can be saved as a first Dive. |
 | `DIVE_OVERVIEW_VERSION` | No | Pins a specific saved version of the Dive, so later edits do not appear until you update the pin. | The Dive's version history. |
-| `DIVE_OVERVIEW_SHARE_URL` | Only if your Dive needs it | A share the Dive reads, listed in its `REQUIRED_DATABASES`. | The share's `md:_share/...` URL. Keep it out of Git. |
 
 ### Accounts, admin portal and SSO
 
@@ -43,8 +42,8 @@ Optional. Setting `MOTHERDUCK_APP_TOKEN` switches from the shared password to pe
 | `APP_DATABASE` | No | The app database's name. The default is `dive_chat_app`. | You choose it. `npm run db:migrate` creates the tables. |
 | `APP_URL` | In production off Vercel | The public address, used for SSO redirects and request-origin checks. | Your domain, for example `https://dives.example.com`. |
 | `CHAT_HISTORY` | No | `off` stops saving conversations. They are saved by default in accounts mode. | You choose it. |
-| `CHAT_RETENTION_DAYS` | No | Deletes saved messages older than this many days. | Your data-retention policy. |
-| `SSO_ISSUER` or `SSO_DISCOVERY_URL`, `SSO_CLIENT_ID`, `SSO_CLIENT_SECRET` | For SSO | Any OpenID Connect provider. `SSO_LABEL` sets the button text. | Your identity provider's app registration. |
+| `CHAT_RETENTION_DAYS` | No | Deletes saved messages older than this many days, once a day through `/api/cron/daily` (needs `CRON_SECRET`). | Your data-retention policy. |
+| `SSO_ISSUER` or `SSO_DISCOVERY_URL`, `SSO_CLIENT_ID`, `SSO_CLIENT_SECRET` | For SSO | Any OpenID Connect provider. `SSO_LABEL` sets the button text, and `SSO_PROVIDER_ID` the provider id in the redirect URI (default `sso`). | Your identity provider's app registration. |
 | `OKTA_*`, `MICROSOFT_*`, `GOOGLE_*`, `GITHUB_*` | No | Ready-made providers. See [Single sign-on](accounts.md#single-sign-on). | The provider's console. |
 | `PUBLIC_DEMO` | No | `true` makes a look-around demo: visitors can open every screen, including the admin portal, but cannot change anything. Model tiers left out of `CHAT_MODELS` stay visible but greyed out. See [Run a public demo](accounts.md#run-a-public-demo). | You choose it. |
 | `PUBLIC_DEMO_SIGN_IN_URL` | No | In a public demo, an `https` link on the sign-in page to where the demo username and password are published, such as a README section. | You choose it. |
@@ -52,30 +51,59 @@ Optional. Setting `MOTHERDUCK_APP_TOKEN` switches from the shared password to pe
 | `SSO_TRUSTED` | No | `true` trusts the generic OpenID Connect provider's emails without an `email_verified` claim, for linking and account creation. Use it only for your own directory, where nobody can register with an email they choose. | Your choice. |
 | `AUTH_NEW_ACCOUNT_ACCESS` | No | `all` (the default) gives accounts that SSO creates every Dive and chat. `none` starts them with nothing until an administrator grants access. | Your choice. |
 | `AUTH_DOMAIN_GROUPS` | No | Puts people whose verified email is at a domain into a group when SSO creates their account, for example `acme.com=Acme, globex.com=Globex`. Those domains may create accounts. See [Who single sign-on lets in](accounts.md#who-single-sign-on-lets-in). | Your domains and the group names in the admin portal. |
-| `CRON_SECRET` | No | Lets the daily access check run (`/api/cron/access-sync`), which puts MotherDuck grants right after a failed sync or a change made outside the app. | Any random string of 16 or more characters. Vercel sends it to scheduled routes automatically. |
+| `CRON_SECRET` | No | Lets the scheduled routes run: the daily upkeep (`/api/cron/daily`), which deletes messages past `CHAT_RETENTION_DAYS` and puts MotherDuck grants right after a failed sync or a change made outside the app, and the weekly digest (`/api/cron/digest`). | Any random string of 16 or more characters. Vercel sends it to scheduled routes automatically. |
+| `DIGEST_WEBHOOK_URL` | No | A Slack incoming webhook (`https`) that receives a weekly summary of chat questions, including question text. See [Weekly digest](accounts.md#weekly-digest). | Slack's incoming webhooks page for the channel. Treat it as a secret. |
+| `MODEL_PRICES` | No | Prices per million input and output tokens for each tier, for example `luna:0.25/2,sol:1.25/10`. Adds an estimated cost to the **Questions** tab. See [Estimate the cost](accounts.md#estimate-the-cost). | Your model provider's pricing page. |
+| `MODEL_PRICE_CURRENCY` | No | The three-letter currency shown with the estimated cost. The default is `USD`. | Your provider's billing currency. |
 
 ### AI chat
 
 | Setting | Required | What it is | Where it comes from |
 | --- | --- | --- | --- |
-| `OPENAI_API_KEY` and/or `ANTHROPIC_API_KEY` | For chat | Calls the AI models from the server. Set one or both. | Your OpenAI project's or Anthropic Console's API keys page. |
+| `OPENAI_API_KEY` and/or `ANTHROPIC_API_KEY` | For chat, unless another provider is set up | Calls the AI models from the server. Set one or both, or use one of the providers below. | Your OpenAI project's or Anthropic Console's API keys page. |
 | `MOTHERDUCK_CHAT_TOKEN` | For chat | A **read-only** MotherDuck token the assistant uses to run SQL. Its grants decide what chat can see. | A token for a read-only service account that can read only the chat database. Never use an admin token here. |
 | `DIVE_OVERVIEW_CHAT_DATABASE` | For chat | The database or attached share the assistant may query. | The database alias as the chat identity sees it, for example `sample_data`. |
 | `MOTHERDUCK_PG_HOST` | No | The MotherDuck Postgres endpoint for your data's region. | The default is `pg.us-east-1-aws.motherduck.com`. Change it if your organization is in another region. |
-| `CHAT_PROVIDER`, `CHAT_MODEL_LUNA`, `CHAT_MODEL_SOL`, `CHAT_MODEL_ASTRA` | No | Which provider and model each tier uses, for example `anthropic:claude-haiku-5-5`. | See [Models](#models). |
-| `CHAT_DEFAULT_MODEL` | No | The default picker choice: `auto`, `luna`, `sol` or `astra`. `OPENAI_MODEL` is the earlier name. | Auto is the default when two or more tiers are enabled. |
-| `CHAT_MODELS` | No | The tiers shown in the model picker, separated by commas, for example `luna,sol`. `OPENAI_CHAT_MODELS` is the earlier name. | All three are shown when this is unset. |
+| `CHAT_PROVIDER`, `CHAT_MODEL_LUNA`, `CHAT_MODEL_SOL`, `CHAT_MODEL_ASTRA` | No | Which provider and model each tier uses, for example `anthropic:claude-haiku-5-5`. Providers: `openai`, `anthropic`, `openrouter`, `azure`, `bedrock`, `vertex`, `openai-compatible`. | See [Models](#models). |
+| `CHAT_MODEL_UTILITY` | No | The model for Auto routing and suggested questions, as `provider:model-id`. | Defaults to the fastest enabled tier. |
+| `CHAT_DEFAULT_MODEL` | No | The default picker choice: `auto`, `luna`, `sol` or `astra`. | Auto is the default when two or more tiers are enabled. |
+| `CHAT_MODELS` | No | The tiers shown in the model picker, separated by commas, for example `luna,sol`. | All three are shown when this is unset. |
 | `CHAT_ROUTER` | No | `off` removes the Auto choice. | See [Models](#models). |
 | `OPENAI_BASE_URL`, `ANTHROPIC_BASE_URL` | No | A compatible endpoint or router, including `/v1`. | Your gateway. |
 | `CHAT_FOLLOW_UPS` | No | Set it to `true` to suggest follow-up questions. This makes one extra model request per answer. | Off by default. |
+
+#### Other model providers
+
+Set the variables of the provider you use. Secrets are marked; they belong in your secret manager. The admin portal shows only whether each one is set. [model-providers.md](model-providers.md) has the setup steps for each provider.
+
+| Setting | Secret | What it is | Where it comes from |
+| --- | --- | --- | --- |
+| `OPENROUTER_API_KEY` | Yes | Calls models through OpenRouter. | [openrouter.ai/keys](https://openrouter.ai/keys). |
+| `OPENROUTER_BASE_URL` | No | A proxy in front of OpenRouter. Optional. | Your proxy. |
+| `AZURE_API_KEY` | Yes | Calls Azure OpenAI or Microsoft Foundry deployments. | Azure portal > resource > Keys and Endpoint. |
+| `AZURE_RESOURCE_NAME` or `AZURE_BASE_URL` | No | The resource name (`my-resource`), or the full endpoint ending in `/openai/v1`. | Azure portal > resource > Keys and Endpoint. |
+| `AZURE_API_VERSION` | No | An API version other than the default `v1`. | Only if your resource needs it. |
+| `AWS_BEARER_TOKEN_BEDROCK` | Yes | A Bedrock API key. Alternatively `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` (and `AWS_SESSION_TOKEN` for temporary keys). | Bedrock console > API keys, or IAM. |
+| `AWS_REGION` | No | The Bedrock region, for example `us-east-1`. Required for Bedrock. | Where your Bedrock model access is. |
+| `GOOGLE_VERTEX_PROJECT` | No | The Google Cloud project ID for Vertex AI. | Google Cloud console. |
+| `GOOGLE_VERTEX_LOCATION` | No | The Vertex AI location. Defaults to `global`. | The model's documentation page. |
+| `GOOGLE_CLIENT_EMAIL`, `GOOGLE_PRIVATE_KEY` | The key is | A service account's email and private key, for hosts without files. | The service account's JSON key. |
+| `GOOGLE_APPLICATION_CREDENTIALS` | Points to one | The path to a service-account JSON key file. | Your host's file storage. |
+| `GOOGLE_VERTEX_ADC` | No | `true` on Google Cloud runtimes that run as a service account. | You choose it. |
+| `GOOGLE_VERTEX_API_KEY` | Yes | A Vertex AI express-mode key, Gemini only. | Google Cloud console. |
+| `OPENAI_COMPATIBLE_BASE_URL` | No | A self-hosted or other OpenAI-compatible server, including `/v1`. | Your vLLM, Ollama, LM Studio, TGI or LiteLLM server. |
+| `OPENAI_COMPATIBLE_MODEL` | No | The model that server serves, used for every tier without its own. | Your server's model name. |
+| `OPENAI_COMPATIBLE_API_KEY` | Yes | The server's token, if it needs one. Sent only to `OPENAI_COMPATIBLE_BASE_URL`. | Your server's configuration. |
 
 The Explorer entry uses the same pattern with `DIVE_EXPLORER_*` names. Remove it from `dives.config.mjs` if you only need one dashboard.
 
 ## Models
 
-Chat has three tiers: **Luna** (fast), **Sol** (balanced) and **Astra** (deep analysis). There is also **Auto**, which picks a tier for each question. Each tier can use OpenAI or Anthropic. [docs/model-routing.md](model-routing.md) covers the defaults, mixing providers, how Auto decides, and how to plug in an external router.
+Chat has three tiers: **Luna** (fast), **Sol** (balanced) and **Astra** (deep analysis). There is also **Auto**, which picks a tier for each question. Each tier can use OpenAI, Anthropic, OpenRouter, Azure OpenAI / Microsoft Foundry, Amazon Bedrock, Google Vertex AI or a self-hosted OpenAI-compatible server. [docs/model-providers.md](model-providers.md) explains how to set up each provider and the admin **Models** tab. [docs/model-routing.md](model-routing.md) covers the tiers, how Auto decides, and how to plug in an external router.
 
-Check that your provider account can use the models you enable. `npm run --silent setup -- --live --json` checks access to the default model without generating an answer.
+Model choices are read in this order: the admin Models tab (accounts mode only, non-secret values only), then environment variables, then built-in defaults. Credentials are always environment variables.
+
+Check that your provider account can use the models you enable. `npm run --silent setup -- --live --json` checks access to the default OpenAI or Anthropic model without generating an answer. For other providers, use **Test** in the admin Models tab.
 
 ## Add another dashboard
 

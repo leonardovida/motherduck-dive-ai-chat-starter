@@ -29,7 +29,7 @@ test('a public demo lists switched-off models so the picker can grey them out', 
 
 test('account viewers carry their session id, so a shared demo account is limited per visitor', async () => {
   const fakeAuth = { api: { getSession: async () => ({ session: { id: 's1' }, user: { id: 'u1', role: 'admin' } }) } };
-  assert.equal((await getViewer({ cookie: 'ok' }, { MOTHERDUCK_APP_TOKEN: 't' }, fakeAuth)).sessionId, 's1');
+  assert.equal((await getViewer(new Headers({ cookie: 'ok' }), { MOTHERDUCK_APP_TOKEN: 't' }, fakeAuth)).sessionId, 's1');
 });
 
 test('the account endpoint refuses changes in a public demo before reaching the database', async () => {

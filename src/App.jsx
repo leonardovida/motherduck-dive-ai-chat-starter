@@ -1,7 +1,10 @@
 import * as React from "react";
 import dynamic from "next/dynamic";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
-import { receiveDiveExport, downloadDiveExport } from "./lib/dive-export.mjs";
+import { EMBED_ORIGIN, fromDiveFrame, receiveDiveExport } from "./lib/dive-export.mjs";
+import { downloadBlob } from "./lib/download.mjs";
+import { api } from "./lib/api.mjs";
+import { MIN_PASSWORD_LENGTH, fill } from "./lib/text.mjs";
 import { Alert, AlertAction, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Breadcrumb, BreadcrumbItem, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from "@/components/ui/breadcrumb";
@@ -63,16 +66,10 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { DEFAULT_APP_TITLE } from "./lib/app-meta.mjs";
+import { clearChatSession } from "./lib/chat-session.mjs";
 
 const ChatPanel = dynamic(() => import("@/components/chat-panel"), { ssr: false });
 
-function clearChatSessionHistory() {
-  return import("@/components/chat-panel")
-    .then(({ clearChatHistory }) => clearChatHistory())
-    .catch(() => {});
-}
-
-const EMBED_ORIGIN = "https://embed-motherduck.com";
 const EMBED_BASE = `${EMBED_ORIGIN}/sandbox/`;
 const STATE_KEY = /^[A-Za-z0-9_.-]{1,64}$/;
 // Automatic retries before the frame shows an error card, in milliseconds.
@@ -171,10 +168,6 @@ const COPY = {
   passwordSetupToSignIn: "Go to sign-in",
 };
 
-function fill(template, values) {
-  return String(template).replace(/\{(\w+)\}/g, (_, key) => String(values[key] ?? ""));
-}
-
 function readStored(key, fallback) {
   try {
     return window.localStorage.getItem(key) || fallback;
@@ -213,25 +206,9 @@ function sanitizeState(value) {
   }
 }
 
-async function jsonRequest(url, options = {}) {
-  const response = await fetch(url, {
-    credentials: "same-origin",
-    cache: "no-store",
-    signal: AbortSignal.timeout(20000),
-    ...options,
-    headers: {
-      Accept: "application/json",
-      ...(options.body ? { "Content-Type": "application/json" } : {}),
-      ...options.headers,
-    },
-  });
-  let data;
-  try {
-    data = await response.json();
-  } catch {
-    data = undefined;
-  }
-  return { response, data };
+// Every request from the shell gives up after 20 seconds, so a button never spins forever.
+function request(url, options = {}) {
+  return api(url, { signal: AbortSignal.timeout(20000), ...options });
 }
 
 function IconTip({ label, children }) {
@@ -253,13 +230,30 @@ function ThemeButton({ theme, setTheme }) {
   );
 }
 
+// Better Auth returns here with ?sso=failed when a provider or the domain allowlist refused.
+// It is read when the module loads and removed from the address bar straight away.
+function takeSsoFailure() {
+  if (typeof window === "undefined") return false;
+  const url = new URL(window.location.href);
+  if (url.searchParams.get("sso") !== "failed") return false;
+  url.searchParams.delete("sso");
+  window.history.replaceState(null, "", url.pathname + url.search + url.hash);
+  return true;
+}
+let ssoFailed = takeSsoFailure();
+
 function LoginView({ appTitle, devPassword, mode, sso = [], demo, theme, setTheme, onSubmit, onSso }) {
   const accounts = mode === "accounts";
   const [username, setUsername] = React.useState("");
   const [password, setPassword] = React.useState("");
   const [visible, setVisible] = React.useState(false);
-  // Better Auth returns here with ?sso=failed when a provider or the domain allowlist refused.
-  const [state, setState] = React.useState(() => ({ busy: false, error: typeof window !== "undefined" && new URLSearchParams(window.location.search).get("sso") === "failed" ? COPY.ssoFailed : "" }));
+  const [state, setState] = React.useState({ busy: false, error: "" });
+  // Shown once: a later sign-out brings this view back without the old error.
+  React.useEffect(() => {
+    if (!ssoFailed) return;
+    ssoFailed = false;
+    setState((current) => ({ ...current, error: COPY.ssoFailed }));
+  }, []);
 
   const submit = async (event) => {
     event.preventDefault();
@@ -379,23 +373,26 @@ function SetupPasswordView({ appTitle, token, theme, setTheme, onDone }) {
   const [error, setError] = React.useState("");
   React.useEffect(() => {
     let active = true;
-    jsonRequest("/api/account-setup", { method: "POST", body: JSON.stringify({ token }) })
-      .then(({ response, data }) => { if (active) { setPerson(response.ok ? data : null); setStatus(response.ok ? "ready" : "invalid"); } })
+    request("/api/account-setup", { method: "POST", body: JSON.stringify({ token }) })
+      .then((data) => { if (active) { setPerson(data); setStatus("ready"); } })
       .catch(() => active && setStatus("invalid"));
     return () => { active = false; };
   }, [token]);
   const submit = async (event) => {
     event.preventDefault();
-    if (form.password.length < 12) return setError(COPY.passwordSetupTooShort);
+    if (form.password.length < MIN_PASSWORD_LENGTH) return setError(COPY.passwordSetupTooShort);
     if (form.password !== form.confirm) return setError(COPY.passwordSetupMismatch);
     setStatus("saving"); setError("");
     try {
-      const { response, data } = await jsonRequest("/api/account-setup", { method: "POST", body: JSON.stringify({ token, password: form.password }) });
-      if (!response.ok) { setStatus(data?.error === "setup_link_invalid" ? "invalid" : "ready"); setError(data?.error === "setup_link_invalid" ? "" : COPY.authUnavailable); return; }
+      const data = await request("/api/account-setup", { method: "POST", body: JSON.stringify({ token, password: form.password }) });
       const { authClient } = await import("./lib/auth-client.js");
       await authClient.signIn.username({ username: data.username, password: form.password });
       onDone();
-    } catch { setStatus("ready"); setError(COPY.authUnavailable); }
+    } catch (error) {
+      const invalid = error.message === "setup_link_invalid";
+      setStatus(invalid ? "invalid" : "ready");
+      setError(invalid ? "" : COPY.authUnavailable);
+    }
   };
   return (
     <div className="login-shell">
@@ -435,7 +432,7 @@ function ChangePasswordSheet({ open, onOpenChange }) {
   const set = (key) => (event) => setForm((current) => ({ ...current, [key]: event.target.value }));
   const submit = async (event) => {
     event.preventDefault();
-    if (form.next.length < 12) return setState({ busy: false, message: COPY.passwordSetupTooShort, done: false });
+    if (form.next.length < MIN_PASSWORD_LENGTH) return setState({ busy: false, message: COPY.passwordSetupTooShort, done: false });
     if (form.next !== form.repeat) return setState({ busy: false, message: COPY.passwordSetupMismatch, done: false });
     setState({ busy: true, message: "", done: false });
     try {
@@ -476,7 +473,7 @@ function DiveSidebar({ dives, selectedKey, onSelect, onSignOut, user, demo }) {
   return (
     <>
     <ChangePasswordSheet open={passwordOpen} onOpenChange={setPasswordOpen} />
-    <Sidebar mobileTitle={COPY.dives} mobileDescription={COPY.chooseDive} collapsible={isMobile ? "offcanvas" : "none"} className="app-sidebar" style={{ "--sidebar-width": "100%" }}>
+    <Sidebar mobileTitle={COPY.dives} mobileDescription={COPY.chooseDive} className="app-sidebar" style={{ "--sidebar-width": "100%" }}>
       <SidebarContent>
         <SidebarGroup className="workspace-nav-group">
           <SidebarGroupLabel>{COPY.dives}</SidebarGroupLabel>
@@ -617,18 +614,11 @@ function DiveFrame({ theme, dive, onStatusChange, onStateChange }) {
   const linkHosts = React.useMemo(() => new Set(dive.linkHosts || []), [dive.linkHosts]);
   React.useEffect(() => { onStatusChange(status); }, [status, onStatusChange]);
 
+  // The Dive's current selections ride along, so a renewed session opens where the viewer was.
   const requestSession = React.useCallback(async (signal) => {
-    const state = stateRef.current;
-    const result = state
-      ? await jsonRequest("/api/embed", { method: "POST", signal, body: JSON.stringify({ dive: dive.key, theme, state }) })
-      : await jsonRequest(`/api/embed?${new URLSearchParams({ dive: dive.key, theme })}`, { signal });
-    if (result.data?.error === "embedding_not_configured") {
-      const error = new Error("embedding_not_configured");
-      error.missing = Array.isArray(result.data.missing) ? result.data.missing : [];
-      throw error;
-    }
-    if (!result.response.ok || !result.data?.session) throw new Error(result.data?.error || "embed_unavailable");
-    return result.data;
+    const data = await api("/api/embed", { method: "POST", signal, body: JSON.stringify({ dive: dive.key, theme, state: stateRef.current }) });
+    if (!data.session) throw new Error("embed_unavailable");
+    return data;
   }, [dive.key, theme]);
 
   const openDive = React.useCallback(async (attempt = 0) => {
@@ -657,7 +647,7 @@ function DiveFrame({ theme, dive, onStatusChange, onStateChange }) {
     } catch (error) {
       if (requestId !== requestIdRef.current || controller.signal.aborted) return;
       if (error.message === "embedding_not_configured") {
-        setMissing(error.missing);
+        setMissing(Array.isArray(error.data?.missing) ? error.data.missing : []);
         setStatus("configuration");
         return;
       }
@@ -690,14 +680,14 @@ function DiveFrame({ theme, dive, onStatusChange, onStateChange }) {
 
   React.useEffect(() => {
     const onMessage = (event) => {
-      if (event.origin !== EMBED_ORIGIN || event.source !== frameRef.current?.contentWindow) return;
-      const exported = receiveDiveExport(event, frameRef.current?.contentWindow, pendingExports.current);
+      if (!fromDiveFrame(event, frameRef.current?.contentWindow)) return;
+      const exported = receiveDiveExport(event.data, pendingExports.current);
       if (exported) {
         if (exported.type === "started") setExportFailed(false);
         if (exported.type === "error") setExportFailed(true);
         if (exported.type === "file") {
           try {
-            downloadDiveExport(exported);
+            downloadBlob(new Blob([exported.data], { type: exported.mimeType }), exported.filename);
             setExportFailed(false);
           } catch {
             setExportFailed(true);
@@ -712,10 +702,10 @@ function DiveFrame({ theme, dive, onStatusChange, onStateChange }) {
         onStateChange?.(stateRef.current || {});
         return;
       }
-      if (["navigation-request", "dive-navigation-request", "open-link"].includes(message.type)) {
+      if (message.type === "navigation-request") {
         let requested;
         try {
-          requested = new URL(typeof message.url === "string" ? message.url : message.href);
+          requested = new URL(message.url);
         } catch {
           return;
         }
@@ -723,7 +713,6 @@ function DiveFrame({ theme, dive, onStatusChange, onStateChange }) {
         setLinkRequest({ href: requested.toString(), hostname: requested.hostname });
         return;
       }
-      if (["dive-session-expired", "session-expired", "auth-expired"].includes(message.type)) openDive();
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
@@ -865,7 +854,7 @@ function MainContent({ appTitle, theme, setTheme, dive, dives, onSelectDive, onS
     </div>
   );
 
-  const chat = <ChatPanel key={dive.key} dive={dive} state={diveState} ready={frameStatus === "ready"} frameStatus={frameStatus} onClose={() => setChatOpen(false)} />;
+  const chat = <ChatPanel dive={dive} state={diveState} ready={frameStatus === "ready"} frameStatus={frameStatus} onClose={() => setChatOpen(false)} />;
   const chatSheet = (
     <Sheet open={chatOpen && !wideChat} onOpenChange={setChatOpen}>
       <SheetContent showCloseButton={false} className="chat-sheet" style={{ width: "min(100%,420px)", maxWidth: "100%", gap: 0 }}>
@@ -917,11 +906,9 @@ function AuthenticatedApp({ appTitle, theme, setTheme, dives, selectedKey, setSe
   React.useEffect(() => {
     if (dive?.key && dive.key !== selectedKey) setSelectedKey(dive.key);
   }, [selectedKey, setSelectedKey, dive]);
-  React.useEffect(() => () => {
-    void clearChatSessionHistory();
-  }, []);
+  React.useEffect(() => clearChatSession, []);
   return (
-    <SidebarProvider defaultOpen>
+    <SidebarProvider>
       <MainContent appTitle={appTitle} theme={theme} setTheme={setTheme} dive={dive} dives={dives} onSelectDive={setSelectedKey} onSignOut={onSignOut} user={user} demo={demo} />
     </SidebarProvider>
   );
@@ -946,8 +933,8 @@ export default function App() {
   const loadDives = React.useCallback(async () => {
     setDivesState("loading");
     try {
-      const { response, data } = await jsonRequest("/api/dives");
-      if (!response.ok || !Array.isArray(data?.dives)) throw new Error("dives-unavailable");
+      const data = await request("/api/dives");
+      if (!Array.isArray(data?.dives)) throw new Error("dives-unavailable");
       setDives(data.dives);
       setDivesState("ready");
     } catch {
@@ -957,8 +944,8 @@ export default function App() {
 
   const refreshAuth = React.useCallback(async () => {
     try {
-      const { response, data } = await jsonRequest("/api/auth");
-      const authenticated = response.ok && data?.authenticated === true;
+      const data = await request("/api/auth");
+      const authenticated = data?.authenticated === true;
       setAuth({
         state: authenticated ? "authenticated" : "unauthenticated",
         appTitle: typeof data?.appTitle === "string" && data.appTitle ? data.appTitle : COPY.defaultTitle,
@@ -974,12 +961,8 @@ export default function App() {
     }
   }, [loadDives]);
 
-  React.useEffect(() => {
-    refreshAuth();
-    // Sessions last 8 hours; check again shortly before that.
-    const timer = window.setTimeout(refreshAuth, 7.5 * 60 * 60 * 1000);
-    return () => window.clearTimeout(timer);
-  }, [refreshAuth]);
+  // An expired session shows up when the Dive renews its embed session, which reloads the page.
+  React.useEffect(() => { refreshAuth(); }, [refreshAuth]);
 
   const submitLogin = async ({ username, password }) => {
     if (auth.mode === "accounts") {
@@ -994,13 +977,13 @@ export default function App() {
       }
     }
     try {
-      const { response, data } = await jsonRequest("/api/auth", { method: "POST", body: JSON.stringify({ password }) });
-      if (!response.ok || data?.authenticated !== true) return { ok: false, error: data?.error };
+      const data = await request("/api/auth", { method: "POST", body: JSON.stringify({ password }) });
+      if (data?.authenticated !== true) return { ok: false, error: "unavailable" };
       setAuth((current) => ({ ...current, state: "authenticated" }));
       await loadDives();
       return { ok: true };
-    } catch {
-      return { ok: false, error: "unavailable" };
+    } catch (error) {
+      return { ok: false, error: error.data?.error || "unavailable" };
     }
   };
 
@@ -1016,10 +999,10 @@ export default function App() {
         const { authClient } = await import("./lib/auth-client.js");
         const { error } = await authClient.signOut();
         if (error) throw new Error("logout-failed");
+      } else {
+        await request("/api/auth", { method: "DELETE" });
       }
-      const { response } = await jsonRequest("/api/auth", { method: "DELETE" });
-      if (!response.ok) throw new Error("logout-failed");
-      await clearChatSessionHistory();
+      clearChatSession();
       setDives([]);
       setAuth((current) => ({ ...current, state: "unauthenticated" }));
     } catch {

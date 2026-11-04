@@ -17,13 +17,16 @@ const dives = [
 const acme = { id: 'g-acme', name: 'Acme', dives: ['explorer'], chat: true, serviceAccount: 'acme_viewer', resources: { explorer: [{ alias: 'demo', url: SHARE_A }] } };
 const finance = { id: 'g-fin', name: 'Finance', dives: ['overview'], chat: false, serviceAccount: null, resources: {} };
 
-test('an empty Dive list means none, so unticking every Dive no longer grants all of them', () => {
-  assert.equal(parseDiveAccess(null), '*');
-  assert.equal(parseDiveAccess(undefined), '*');
+test('access fails closed: an empty or missing Dive list means none, and chat needs an explicit yes', () => {
+  assert.deepEqual(parseDiveAccess(null), []);
+  assert.deepEqual(parseDiveAccess(undefined), []);
   assert.equal(parseDiveAccess('*'), '*');
   assert.deepEqual(parseDiveAccess(''), []);
   assert.deepEqual(parseDiveAccess('overview, explorer,overview,BAD KEY'), ['overview', 'explorer']);
   assert.deepEqual(viewerFromUser({ id: 'u', diveAccess: '' }).dives, []);
+  assert.deepEqual([viewerFromUser({ id: 'u' }).dives, viewerFromUser({ id: 'u' }).chat], [[], false]);
+  assert.equal(viewerFromUser({ id: 'u', chatAccess: null }).chat, false);
+  assert.equal(viewerFromUser({ id: 'u', chatAccess: true }).chat, true);
 });
 
 test('group access adds to personal access, and one data group sets the MotherDuck identity', () => {
@@ -76,10 +79,10 @@ test('a failed group lookup leaves the person with no Dives rather than the wron
   const auth = { api: { getSession: async () => ({ user: { id: 'u', role: 'user', diveAccess: '*' }, session: { id: 's' } }) } };
   const env = { MOTHERDUCK_APP_TOKEN: 't' };
   const broken = { forUser: async () => { throw Object.assign(new Error('connection reset'), { code: 'ECONNRESET' }); } };
-  const locked = await getViewer({ cookie: 'ok' }, env, auth, { groups: broken });
+  const locked = await getViewer(new Headers({ cookie: 'ok' }), env, auth, { groups: broken });
   assert.deepEqual(locked.dives, []);
   assert.equal(locked.chat, false);
-  const member = await getViewer({ cookie: 'ok' }, env, auth, { groups: { forUser: async () => [acme] } });
+  const member = await getViewer(new Headers({ cookie: 'ok' }), env, auth, { groups: { forUser: async () => [acme] } });
   assert.equal(member.dataGroup.serviceAccount, 'acme_viewer');
 });
 
@@ -454,4 +457,20 @@ test('only identity providers the deployer controls are trusted to vouch for an 
   const env = { ...entra('0b4f2c1e-1234-4abc-9def-0123456789ab'), AUTH_ALLOWED_EMAIL_DOMAINS: 'example.com' };
   assert.ok(newAccountDefaults({ email: 'a@example.com', emailVerified: false }, env, 'microsoft-entra-id'), 'a single-tenant Entra email counts as verified');
   assert.equal(newAccountDefaults({ email: 'a@example.com', emailVerified: false }, env, 'google'), null);
+});
+
+test('adding a list of people looks up every username and email once and refuses repeats', async () => {
+  const { createPeopleService } = await import('../lib/people.mjs');
+  const lookups = [], created = [];
+  const query = async (text, values) => {
+    if (text.includes('lower(username) IN')) { lookups.push({ text, values }); return [{ username: 'ada', email: 'ada@example.com' }]; }
+    return [];
+  };
+  const auth = () => ({ api: { createUser: async ({ body }) => { created.push(body.data.username); return { user: { id: `id-${body.data.username}` } }; } } });
+  const people = createPeopleService(query, { auth, groups: {}, setup: { create: async () => ({ token: 't', expiresAt: new Date() }) } });
+  const results = await people.create({ people: [{ username: 'Ada' }, { username: 'grace' }, { username: 'grace' }, { username: 'linus', email: 'ADA@example.com' }], access: { dives: '*', chat: true } }, { scope: { all: true }, viewer: { id: 'admin' }, origin: 'https://app.test' });
+  assert.equal(lookups.length, 1);
+  assert.match(lookups[0].text, /IN \(\$1::VARCHAR, \$2::VARCHAR, \$3::VARCHAR, \$4::VARCHAR\) OR lower\(email\) IN \(\$5::VARCHAR/);
+  assert.deepEqual(results.map(result => result.error ?? 'ok'), ['already_exists', 'ok', 'already_exists', 'already_exists']);
+  assert.deepEqual(created, ['grace']);
 });

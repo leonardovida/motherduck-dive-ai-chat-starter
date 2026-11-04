@@ -1,10 +1,10 @@
 # Models, providers and automatic routing
 
-The chat works with **OpenAI**, **Anthropic** or both. With **Auto** routing, simple questions go to a small, fast and cheap model, and harder questions go to a larger one.
+The chat works with OpenAI, Anthropic, OpenRouter, Azure OpenAI / Microsoft Foundry, Amazon Bedrock, Google Vertex AI and self-hosted OpenAI-compatible servers, alone or mixed. [model-providers.md](model-providers.md) explains how to set up each one. With **Auto** routing, simple questions go to a small, fast and cheap model, and harder questions go to a larger one.
 
 ## Providers and tiers
 
-There are three tiers. Each tier maps to one provider and model:
+There are three tiers. The tiers are the same whatever the provider: each tier maps to one provider and model, and only the model behind it changes.
 
 | Tier | OpenAI default | Anthropic default | Reasoning | Steps | Typical questions |
 | --- | --- | --- | --- | --- | --- |
@@ -12,17 +12,22 @@ There are three tiers. Each tier maps to one provider and model:
 | **Sol** | `gpt-6.1-sol` | `claude-sonnet-5-5` | medium | 8 | Comparisons, trends, rankings, one or two aggregations |
 | **Astra** | `gpt-6-astra` | `claude-opus-5-5` | high | 10 | "Why did churn rise?", multi-part analysis, statistics |
 
+The defaults for the other providers are in [model-providers.md](model-providers.md#default-models). Give Luna a small, fast model and Astra the most capable one. Reasoning effort is sent only to providers that support it; self-hosted endpoints never receive it. Auto routing, the classifier and escalation work the same on every provider. The **utility model** runs the classifier and suggested questions. It is the fastest enabled tier unless `CHAT_MODEL_UTILITY` or the admin Models tab sets another.
+
+In [accounts mode](accounts.md), administrators can also choose providers and models in **Admin > Models** without a redeploy. Saved choices take precedence over the environment variables below, which take precedence over the built-in defaults.
+
 | Setting | Effect |
 | --- | --- |
-| `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` | Enables that provider. Set one or both. |
-| `CHAT_PROVIDER=anthropic` | The provider for tiers without an override. Without it, OpenAI is used when its key is set, otherwise Anthropic. |
+| `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` | Enables that provider. Set one or both. Other providers have their own variables, listed in [model-providers.md](model-providers.md). |
+| `CHAT_PROVIDER=anthropic` | The provider for tiers without an override: `openai`, `anthropic`, `openrouter`, `azure`, `bedrock`, `vertex` or `openai-compatible`. Without it, the first provider whose variables are set is used, OpenAI first, then Anthropic. |
 | `CHAT_MODEL_LUNA=anthropic:claude-haiku-5-5` | Overrides one tier. Use `provider:model`, or a bare model ID for the default provider. Providers can be mixed: a cheap Anthropic Luna with an OpenAI Astra works. |
-| `CHAT_MODELS=luna,sol` | Limits the tiers people can pick, for example to cap spend. (`OPENAI_CHAT_MODELS` still works.) |
-| `CHAT_DEFAULT_MODEL=auto` | The default choice in the picker: `auto`, a tier, or a model ID. (`OPENAI_MODEL` still works.) |
+| `CHAT_MODEL_UTILITY=openai:gpt-6-luna` | The model for routing and suggested questions. Defaults to the fastest enabled tier. |
+| `CHAT_MODELS=luna,sol` | Limits the tiers people can pick, for example to cap spend. |
+| `CHAT_DEFAULT_MODEL=auto` | The default choice in the picker: `auto`, a tier, or a model ID. |
 | `CHAT_ROUTER=off` | Removes Auto. With two or more tiers, Auto is on and is the default. |
 | `OPENAI_BASE_URL` / `ANTHROPIC_BASE_URL` | Sends requests to a compatible gateway or router instead (see [external routers](#use-an-external-router)). |
 
-Tiers whose provider has no key are hidden. The browser only ever sends a tier name or `auto`. Model IDs, providers and limits stay on the server, in [`lib/chat-models.mjs`](../lib/chat-models.mjs).
+Tiers whose provider is not configured are hidden. The browser only ever sends a tier name or `auto`. Model IDs, providers and limits stay on the server, in [`lib/chat-models.mjs`](../lib/chat-models.mjs).
 
 ## How Auto decides
 
@@ -57,7 +62,7 @@ The built-in router needs no extra service. If you already run a gateway or a tr
 | [LiteLLM proxy](https://docs.litellm.ai/docs/proxy/auto_routing) | `OPENAI_BASE_URL=https://litellm.example.com/v1` and a tier override such as `CHAT_MODEL_SOL=openai:auto-router` | Self-hosted. Its complexity router scores questions without a model call. |
 | [vLLM Semantic Router](https://github.com/vllm-project/semantic-router) | `OPENAI_BASE_URL` pointing at the proxy | Self-hosted. Policy-driven, with open routing models. |
 | [Katanemo Plano / Arch-Router](https://github.com/katanemo/plano) | `OPENAI_BASE_URL` pointing at the proxy | Self-hosted. Small routing models; check their weight license. |
-| [OpenRouter Auto Router](https://openrouter.ai/docs/guides/routing/routers/auto-router) | `OPENAI_BASE_URL=https://openrouter.ai/api/v1` with `CHAT_MODEL_SOL=openai:openrouter/auto` | Hosted, no router fee. It routes by task type and popularity rather than difficulty. |
+| [OpenRouter Auto Router](https://openrouter.ai/docs/guides/routing/routers/auto-router) | `OPENROUTER_API_KEY` with `CHAT_MODEL_SOL=openrouter:openrouter/auto` | Hosted, no router fee. It routes by task type and popularity rather than difficulty. |
 | [Not Diamond](https://docs.notdiamond.ai) | Call its model-select API in `routeQuestion()` | Hosted. Can be trained on your own evaluations. Paid beyond a free tier. |
 
 Set `CHAT_ROUTER=off` when an external router picks the model, so the two do not compete.

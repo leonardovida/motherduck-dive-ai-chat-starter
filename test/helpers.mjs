@@ -1,12 +1,3 @@
-// Minimal stand-ins for the Node-style request/response the api/ handlers use.
-export function response() {
-  return { headers: {}, setHeader(key, value) { this.headers[key] = value; }, end(value) { this.data = JSON.parse(value); } };
-}
-
-export function request(method, { body, headers = {}, url = '/api/test' } = {}) {
-  return { method, url, body, headers: { host: 'demo.test', origin: 'https://demo.test', 'content-type': 'application/json', ...headers } };
-}
-
 // Runs fn with env overrides, restoring the previous values afterwards.
 export async function withEnv(overrides, fn) {
   const previous = Object.fromEntries(Object.keys(overrides).map(key => [key, process.env[key]]));
@@ -18,4 +9,26 @@ export async function withEnv(overrides, fn) {
       if (value === undefined) delete process.env[key]; else process.env[key] = value;
     }
   }
+}
+
+// Accounts mode without a database. getAuth() and appPool() keep their instances on globalThis,
+// so a test can put fakes there: a Better Auth whose session is the user named by the request's
+// cookie, and an app pool that records every query and answers it with rows(sql, values).
+// Accounts mode itself still needs MOTHERDUCK_APP_TOKEN in the environment.
+export function fakeAccounts({ users = {}, rows = () => [], handler = async () => Response.json({ status: true }) } = {}) {
+  const queries = [];
+  globalThis.__diveChatAuth = {
+    handler,
+    api: {
+      getSession: async ({ headers }) => {
+        const user = users[headers.get('cookie') ?? ''];
+        return user ? { user, session: { id: `session-${user.id}` } } : null;
+      },
+    },
+  };
+  globalThis.__diveChatAppPool = {
+    on() {},
+    query: async (text, values = []) => { queries.push({ text, values }); return { rows: (await rows(text, values)) ?? [] }; },
+  };
+  return { queries, restore() { delete globalThis.__diveChatAuth; delete globalThis.__diveChatAppPool; } };
 }
