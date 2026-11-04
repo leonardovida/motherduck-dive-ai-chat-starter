@@ -123,7 +123,7 @@ const COPY = {
   empty: "Ask about the data behind this Dive.",
   starters: ["What does this Dive show?", "Which tables can you query?", "Summarise the key numbers."],
   disabledTitle: "Chat isn't configured for this Dive",
-  disabledBody: "Set OPENAI_API_KEY or ANTHROPIC_API_KEY, plus the chat token and database variables named for this Dive in dives.config.mjs, in your runtime environment.",
+  disabledBody: "Set up a model provider (OPENAI_API_KEY, ANTHROPIC_API_KEY or another provider in docs/model-providers.md), plus the chat token and database variables named for this Dive in dives.config.mjs, in your runtime environment.",
   deniedTitle: "Chat isn't included in your access",
   deniedBody: "Ask an administrator to turn on chat for your account.",
   recording: "Conversations are saved and can be reviewed by administrators.",
