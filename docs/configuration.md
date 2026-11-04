@@ -30,7 +30,6 @@ npm run --silent setup -- --json --production # also checks sign-in settings
 | `MOTHERDUCK_EMBED_USERNAME` | Yes | The **read-only service account** the embedded Dive runs as. Viewers see only what this account can read. | The exact username of a service account in the same organization. |
 | `DIVE_OVERVIEW_ID` | Yes | The ID of the saved Dive to show. | The Dive's URL in MotherDuck, or `list_dives` in the MotherDuck MCP server. The included `dives/starter.tsx` can be saved as a first Dive. |
 | `DIVE_OVERVIEW_VERSION` | No | Pins a specific saved version of the Dive, so later edits do not appear until you update the pin. | The Dive's version history. |
-| `DIVE_OVERVIEW_SHARE_URL` | Only if your Dive needs it | A share the Dive reads, listed in its `REQUIRED_DATABASES`. | The share's `md:_share/...` URL. Keep it out of Git. |
 
 ### Accounts, admin portal and SSO
 
@@ -44,7 +43,7 @@ Optional. Setting `MOTHERDUCK_APP_TOKEN` switches from the shared password to pe
 | `APP_URL` | In production off Vercel | The public address, used for SSO redirects and request-origin checks. | Your domain, for example `https://dives.example.com`. |
 | `CHAT_HISTORY` | No | `off` stops saving conversations. They are saved by default in accounts mode. | You choose it. |
 | `CHAT_RETENTION_DAYS` | No | Deletes saved messages older than this many days. | Your data-retention policy. |
-| `SSO_ISSUER` or `SSO_DISCOVERY_URL`, `SSO_CLIENT_ID`, `SSO_CLIENT_SECRET` | For SSO | Any OpenID Connect provider. `SSO_LABEL` sets the button text. | Your identity provider's app registration. |
+| `SSO_ISSUER` or `SSO_DISCOVERY_URL`, `SSO_CLIENT_ID`, `SSO_CLIENT_SECRET` | For SSO | Any OpenID Connect provider. `SSO_LABEL` sets the button text, and `SSO_PROVIDER_ID` the provider id in the redirect URI (default `sso`). | Your identity provider's app registration. |
 | `OKTA_*`, `MICROSOFT_*`, `GOOGLE_*`, `GITHUB_*` | No | Ready-made providers. See [Single sign-on](accounts.md#single-sign-on). | The provider's console. |
 | `PUBLIC_DEMO` | No | `true` makes a look-around demo: visitors can open every screen, including the admin portal, but cannot change anything. Model tiers left out of `CHAT_MODELS` stay visible but greyed out. See [Run a public demo](accounts.md#run-a-public-demo). | You choose it. |
 | `PUBLIC_DEMO_SIGN_IN_URL` | No | In a public demo, an `https` link on the sign-in page to where the demo username and password are published, such as a README section. | You choose it. |
@@ -67,8 +66,8 @@ Optional. Setting `MOTHERDUCK_APP_TOKEN` switches from the shared password to pe
 | `MOTHERDUCK_PG_HOST` | No | The MotherDuck Postgres endpoint for your data's region. | The default is `pg.us-east-1-aws.motherduck.com`. Change it if your organization is in another region. |
 | `CHAT_PROVIDER`, `CHAT_MODEL_LUNA`, `CHAT_MODEL_SOL`, `CHAT_MODEL_ASTRA` | No | Which provider and model each tier uses, for example `anthropic:claude-haiku-5-5`. Providers: `openai`, `anthropic`, `openrouter`, `azure`, `bedrock`, `vertex`, `openai-compatible`. | See [Models](#models). |
 | `CHAT_MODEL_UTILITY` | No | The model for Auto routing and suggested questions, as `provider:model-id`. | Defaults to the fastest enabled tier. |
-| `CHAT_DEFAULT_MODEL` | No | The default picker choice: `auto`, `luna`, `sol` or `astra`. `OPENAI_MODEL` is the earlier name. | Auto is the default when two or more tiers are enabled. |
-| `CHAT_MODELS` | No | The tiers shown in the model picker, separated by commas, for example `luna,sol`. `OPENAI_CHAT_MODELS` is the earlier name. | All three are shown when this is unset. |
+| `CHAT_DEFAULT_MODEL` | No | The default picker choice: `auto`, `luna`, `sol` or `astra`. | Auto is the default when two or more tiers are enabled. |
+| `CHAT_MODELS` | No | The tiers shown in the model picker, separated by commas, for example `luna,sol`. | All three are shown when this is unset. |
 | `CHAT_ROUTER` | No | `off` removes the Auto choice. | See [Models](#models). |
 | `OPENAI_BASE_URL`, `ANTHROPIC_BASE_URL` | No | A compatible endpoint or router, including `/v1`. | Your gateway. |
 | `CHAT_FOLLOW_UPS` | No | Set it to `true` to suggest follow-up questions. This makes one extra model request per answer. | Off by default. |

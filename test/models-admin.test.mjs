@@ -9,7 +9,7 @@ const fake = await startFakeOpenAICompatible();
 const rejecting = await startFakeOpenAICompatible({ status: 401, errorBody: { error: { message: `Invalid key ${COMPAT_KEY} sent with Authorization: Bearer ${COMPAT_KEY}` } } });
 test.after(async () => { await fake.close(); await rejecting.close(); });
 
-for (const name of ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'CHAT_PROVIDER', 'CHAT_MODELS', 'OPENAI_CHAT_MODELS', 'PUBLIC_DEMO']) delete process.env[name];
+for (const name of ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'CHAT_PROVIDER', 'CHAT_MODELS', 'PUBLIC_DEMO']) delete process.env[name];
 Object.assign(process.env, {
   SESSION_SECRET: 'unit-test-secret-with-at-least-32-characters',
   MOTHERDUCK_APP_TOKEN: 'fixture-app-token',

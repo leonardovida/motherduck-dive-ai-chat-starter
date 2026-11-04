@@ -217,7 +217,7 @@ flowchart LR
   Browser[Dashboard and chat UI] --> App[Next.js server]
   App --> Session[MotherDuck embed-session API]
   Session --> Frame[Sandboxed Dive iframe]
-  App --> Model[OpenAI via AI SDK]
+  App --> Model[Model provider via AI SDK]
   Model --> Tools[State and read-only SQL tools]
   Tools --> Data[MotherDuck Postgres endpoint]
 ```
@@ -231,7 +231,6 @@ flowchart LR
 | `npm run --silent setup -- --json` | The same check as JSON for agents, with chat required. |
 | `npm run db:migrate` | Creates or updates the app database tables (accounts mode). |
 | `npm run admin:create -- --username=<name>` | Creates an administrator, or resets their password. |
-| `npm run smoke:openai` | Sends one minimal real request to OpenAI. |
 | `npm run release:check` | Confirms the version, release notes and changelog agree. |
 
 Where things live:
@@ -247,7 +246,7 @@ Where things live:
 - `api/` and `lib/`: sign-in, embed sessions, the SQL guard, request limits and saved conversations.
 - `test/`: regression tests that need no credentials.
 
-More detail: [configuration](docs/configuration.md), [accounts and SSO](docs/accounts.md), [models and routing](docs/model-routing.md), [architecture](docs/architecture.md), [verification record](docs/verification.md) and [agent setup](docs/agent-setup.md). CI runs the tests and a build without secrets. The optional manual **Checks** workflow can also run the OpenAI smoke test with a repository secret. Repository secrets never configure the deployed app.
+More detail: [configuration](docs/configuration.md), [accounts and SSO](docs/accounts.md), [models and routing](docs/model-routing.md), [architecture](docs/architecture.md), [verification record](docs/verification.md) and [agent setup](docs/agent-setup.md). CI runs the tests and a build without secrets. Repository secrets never configure the deployed app.
 
 ## License
 

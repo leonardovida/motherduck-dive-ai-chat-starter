@@ -6,6 +6,8 @@ import { audit } from '../../../../../../lib/audit.mjs';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+// Creating the account waits for a full access sync.
+export const maxDuration = 300;
 
 // Creates the group's service account in MotherDuck, then syncs its shares straight away.
 export async function POST(request, { params }) {

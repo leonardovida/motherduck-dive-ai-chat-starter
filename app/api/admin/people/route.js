@@ -10,6 +10,8 @@ import { audit } from '../../../../lib/audit.mjs';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+// Adding up to 200 people creates each account in turn.
+export const maxDuration = 300;
 
 const person = z.object({ username: z.string().max(40), name: z.string().max(120).optional(), email: z.string().max(254).optional(), password: z.string().max(256).optional(), motherduckUser: z.string().max(128).optional() });
 const createSchema = z.object({

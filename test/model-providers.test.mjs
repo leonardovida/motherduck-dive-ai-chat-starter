@@ -116,8 +116,6 @@ test('settings are read from the app database only in accounts mode, with a shor
   assert.equal(reads, 1, 'served from the cache');
   const broken = createModelSettingsStore(async () => { throw Object.assign(new Error('connection reset'), { code: 'ECONNRESET' }); });
   assert.equal((await refreshModelSettings({ env, store: broken, force: true })).tiers.sol.model, 'claude-sonnet-5-5', 'a failed read keeps the last good settings');
-  const missing = createModelSettingsStore(async () => { throw new Error('Catalog Error: Table with name app_setting does not exist!'); });
-  assert.equal(await missing.get(), null, 'before db:migrate there are no settings');
   const tampered = createModelSettingsStore(async () => [{ value: JSON.stringify({ tiers: { luna: { provider: 'evil', model: 'x' } } }) }]);
   assert.equal(await tampered.get(), null, 'rows that no longer validate are ignored');
   assert.ok(cachedModelSettings());

@@ -101,21 +101,35 @@ test('the digest posts to an https webhook once per ISO week and escapes what pe
   assert.ok(text.includes('not helpful: wrong numbers'));
   assert.ok(text.includes('<https://app.test/admin#questions|Open the Questions tab>'));
 
-  const claims = new Set(), posts = [];
+  const claims = new Set(), posts = [], periods = [];
+  let last = null;
   const query = async (text, values) => {
+    if (text.includes('DO UPDATE')) { last = values[1]; return []; }
     if (text.startsWith('INSERT INTO app_job')) { if (claims.has(values[0])) return []; claims.add(values[0]); return [{ name: values[0] }]; }
     if (text.startsWith('DELETE FROM app_job')) { claims.delete(values[0]); return []; }
+    if (text.startsWith('SELECT ran_at')) return last ? [{ ran_at: last }] : [];
     return [];
   };
-  const insights = { summary: async () => summary };
+  const insights = { summary: async options => { periods.push(options.from.toISOString()); return summary; } };
   const env = { DIGEST_WEBHOOK_URL: 'https://hooks.slack.com/services/T/B/C' };
   const ok = async (url, init) => { posts.push(JSON.parse(init.body)); return { ok: true }; };
   assert.deepEqual(await sendDigest({ env, query, insights, fetchImpl: ok, now }), { sent: true, week: 'digest:2026-W47', questions: 3 });
   assert.equal((await sendDigest({ env, query, insights, fetchImpl: ok, now })).reason, 'already_sent');
   assert.equal(posts.length, 1);
-  // A failed post frees the week, so the next run retries.
-  const nextWeek = new Date('2026-11-25T08:00:00Z');
+  // The first digest covers a week; later ones start where the previous one ended.
+  assert.equal(periods[0], '2026-11-11T10:00:00.000Z');
+  assert.equal(posts[0].blocks[0].text.text, 'Dive workspace: chat questions since 2026-11-11');
+  // A failed post frees the week and keeps the start, so its questions are in the next digest.
+  const nextWeek = new Date('2026-11-25T08:00:00Z'), weekAfter = new Date('2026-12-02T08:00:00Z');
   await assert.rejects(sendDigest({ env, query, insights, fetchImpl: async () => ({ ok: false, status: 500 }), now: nextWeek }));
-  assert.equal((await sendDigest({ env, query, insights, fetchImpl: ok, now: nextWeek })).sent, true);
+  assert.equal((await sendDigest({ env, query, insights, fetchImpl: ok, now: weekAfter })).sent, true);
+  assert.deepEqual(periods.slice(1), [now.toISOString(), now.toISOString()]);
   assert.equal((await sendDigest({ env: {}, query, insights, fetchImpl: ok, now })).reason, 'not_configured');
+});
+
+test('a digest period from a moment covers every UTC day it touches, at most a year back', () => {
+  const filter = insightFilter({ from: new Date('2026-11-11T10:00:00Z'), now });
+  assert.equal(filter.since.toISOString(), '2026-11-11T10:00:00.000Z');
+  assert.equal(filter.days, 8);
+  assert.equal(insightFilter({ from: new Date('2020-01-01T00:00:00Z'), now }).since.toISOString(), '2025-11-18T10:00:00.000Z');
 });

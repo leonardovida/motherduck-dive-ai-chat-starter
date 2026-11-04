@@ -8,7 +8,7 @@ import { startFakeOpenAICompatible } from './fake-openai-compatible.mjs';
 const SECRET = 'unit-test-secret-with-at-least-32-characters';
 const fake = await startFakeOpenAICompatible();
 test.after(() => fake.close());
-for (const name of ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'OPENAI_BASE_URL', 'OPENAI_MODEL', 'CHAT_MODELS', 'OPENAI_CHAT_MODELS', 'CHAT_PROVIDER', 'MOTHERDUCK_APP_TOKEN', 'DIVE_EXPLORER_CHAT_DATABASE']) delete process.env[name];
+for (const name of ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'OPENAI_BASE_URL', 'CHAT_DEFAULT_MODEL', 'CHAT_MODELS', 'CHAT_PROVIDER', 'MOTHERDUCK_APP_TOKEN', 'DIVE_EXPLORER_CHAT_DATABASE']) delete process.env[name];
 Object.assign(process.env, {
   SESSION_SECRET: SECRET,
   OPENAI_COMPATIBLE_BASE_URL: fake.url,

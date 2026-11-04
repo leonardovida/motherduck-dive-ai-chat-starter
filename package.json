@@ -11,7 +11,6 @@
     "test": "node --test test/*.test.mjs",
     "dev": "next dev",
     "start": "next start",
-    "smoke:openai": "node scripts/smoke-openai.mjs",
     "check:setup": "node scripts/check-setup.mjs",
     "setup": "node scripts/check-setup.mjs --require-chat",
     "release:check": "node scripts/check-release.mjs",

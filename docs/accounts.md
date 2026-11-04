@@ -129,7 +129,7 @@ WHERE status <> 'answered' OR feedback = -1
 ORDER BY asked_at DESC;
 ```
 
-The view reads the app database, which also holds accounts and sessions. Give a dashboard its own read-only copy, for example `CREATE TABLE analytics.chat_questions AS FROM dive_chat_app.chat_questions` on a schedule, rather than sharing the app database. Answers saved before this version have no groups or Dive state, and their status is read from the saved text.
+The view reads the app database, which also holds accounts and sessions. Give a dashboard its own read-only copy, for example `CREATE TABLE analytics.chat_questions AS FROM dive_chat_app.chat_questions` on a schedule, rather than sharing the app database.
 
 ### Estimate the cost
 
@@ -137,7 +137,7 @@ Set `MODEL_PRICES` to your provider's prices per million tokens for each tier, a
 
 ### Weekly digest
 
-Set `DIGEST_WEBHOOK_URL` to a Slack incoming webhook (`https` only) to post a summary every Monday at 08:00 UTC: questions, people, the share answered, ratings, answers that said the data was missing, the five most asked questions and five that need attention, and a link to the **Questions** tab. On Vercel, `vercel.json` schedules `/api/cron/digest` and it needs `CRON_SECRET`; on other hosts, call it with `Authorization: Bearer <CRON_SECRET>` from your own scheduler. Each week is posted once, even with retries or several server instances, and a failed post is retried on the next run. **Send digest now** in the **Questions** tab posts one on demand.
+Set `DIGEST_WEBHOOK_URL` to a Slack incoming webhook (`https` only) to post a summary every Monday at 08:00 UTC of the questions asked since the previous digest (the past week the first time): questions, people, the share answered, ratings, answers that said the data was missing, the five most asked questions and five that need attention, and a link to the **Questions** tab. On Vercel, `vercel.json` schedules `/api/cron/digest` and it needs `CRON_SECRET`; on other hosts, call it with `Authorization: Bearer <CRON_SECRET>` from your own scheduler. Each week is posted once, even with retries or several server instances. When a post fails, its questions are included in the next digest. **Send digest now** in the **Questions** tab posts one on demand.
 
 The digest contains questions as people typed them, so it copies question text into Slack, where it follows Slack's retention rather than `CHAT_RETENTION_DAYS`. Point it at a channel whose members may read conversations. Text is escaped so a question cannot mention a channel or add a link.
 

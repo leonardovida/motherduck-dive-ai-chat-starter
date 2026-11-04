@@ -1,32 +1,28 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { AUTO, CHAT_MODELS, FOLLOW_UP_MODEL, MODEL_KEYS, chatConfigured, defaultModelKey, defaultProvider, enabledModelKeys, modelCatalog, resolveModel, routerEnabled, tierModel, utilityModel } from '../lib/chat-models.mjs';
+import { AUTO, DEFAULT_MODELS, MODEL_KEYS, chatConfigured, defaultModelKey, defaultProvider, enabledModelKeys, modelCatalog, resolveModel, routerEnabled, tierModel, utilityModel } from '../lib/chat-models.mjs';
 import { languageModel } from '../lib/model-providers.mjs';
 
 test('the catalog offers auto plus luna, sol and astra', () => {
   assert.deepEqual(MODEL_KEYS, ['luna', 'sol', 'astra']);
-  assert.equal(CHAT_MODELS.luna.id, 'gpt-6-luna');
-  assert.equal(CHAT_MODELS.sol.id, 'gpt-6.1-sol');
-  assert.equal(CHAT_MODELS.astra.id, 'gpt-6-astra');
-  assert.equal(FOLLOW_UP_MODEL, CHAT_MODELS.luna);
+  assert.deepEqual(DEFAULT_MODELS.openai, { luna: 'gpt-6-luna', sol: 'gpt-6.1-sol', astra: 'gpt-6-astra' });
   assert.deepEqual(modelCatalog({}), { models: [AUTO, 'luna', 'sol', 'astra'], defaultModel: AUTO });
   assert.deepEqual(modelCatalog({ CHAT_ROUTER: 'off' }), { models: ['luna', 'sol', 'astra'], defaultModel: 'luna' });
   assert.deepEqual(modelCatalog({ CHAT_MODELS: 'sol' }), { models: ['sol'], defaultModel: 'sol' });
 });
 
 test('env limits the picker and picks the default', () => {
-  assert.deepEqual(enabledModelKeys({ OPENAI_CHAT_MODELS: 'sol, ASTRA, bogus' }), ['sol', 'astra']);
-  assert.deepEqual(enabledModelKeys({ CHAT_MODELS: 'luna', OPENAI_CHAT_MODELS: 'sol' }), ['luna']);
-  assert.deepEqual(enabledModelKeys({ OPENAI_CHAT_MODELS: 'bogus' }), MODEL_KEYS);
-  assert.equal(defaultModelKey({ OPENAI_MODEL: 'gpt-6.1-sol' }), 'sol');
-  assert.equal(defaultModelKey({ OPENAI_MODEL: 'astra', OPENAI_CHAT_MODELS: 'luna,sol' }), 'luna');
+  assert.deepEqual(enabledModelKeys({ CHAT_MODELS: 'sol, ASTRA, bogus' }), ['sol', 'astra']);
+  assert.deepEqual(enabledModelKeys({ CHAT_MODELS: 'bogus' }), MODEL_KEYS);
+  assert.equal(defaultModelKey({ CHAT_DEFAULT_MODEL: 'gpt-6.1-sol' }), 'sol');
+  assert.equal(defaultModelKey({ CHAT_DEFAULT_MODEL: 'astra', CHAT_MODELS: 'luna,sol' }), 'luna');
   assert.equal(defaultModelKey({ CHAT_DEFAULT_MODEL: 'auto', CHAT_MODELS: 'luna,sol' }), AUTO);
   assert.equal(defaultModelKey({ CHAT_DEFAULT_MODEL: 'auto', CHAT_MODELS: 'sol' }), 'sol');
 });
 
 test('unknown or disabled keys fall back to the default tier', () => {
   assert.equal(resolveModel('gpt-4o', { CHAT_ROUTER: 'off' }).key, 'luna');
-  assert.equal(resolveModel('astra', { OPENAI_CHAT_MODELS: 'luna,sol' }).key, 'luna');
+  assert.equal(resolveModel('astra', { CHAT_MODELS: 'luna,sol' }).key, 'luna');
   assert.equal(resolveModel('sol', {}).id, 'gpt-6.1-sol');
   assert.equal(resolveModel(AUTO, {}).key, 'luna');
 });

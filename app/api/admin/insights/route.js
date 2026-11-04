@@ -37,8 +37,6 @@ export async function GET(request) {
     }, { headers: NO_STORE });
   } catch (error) {
     console.error('insights_failed', error?.code ?? error?.name);
-    // Before `npm run db:migrate` the view or its newer columns do not exist yet.
-    if (/chat_questions|group_names|group_ids|classified_at|topic/i.test(String(error?.message)) && /(does not exist|not found)/i.test(String(error?.message))) return failure('insights_need_migration', 503);
     return failure('conversations_unavailable', 503);
   }
 }

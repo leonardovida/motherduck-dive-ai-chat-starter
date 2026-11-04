@@ -455,3 +455,19 @@ test('only identity providers the deployer controls are trusted to vouch for an 
   assert.ok(newAccountDefaults({ email: 'a@example.com', emailVerified: false }, env, 'microsoft-entra-id'), 'a single-tenant Entra email counts as verified');
   assert.equal(newAccountDefaults({ email: 'a@example.com', emailVerified: false }, env, 'google'), null);
 });
+
+test('adding a list of people looks up every username and email once and refuses repeats', async () => {
+  const { createPeopleService } = await import('../lib/people.mjs');
+  const lookups = [], created = [];
+  const query = async (text, values) => {
+    if (text.includes('lower(username) IN')) { lookups.push({ text, values }); return [{ username: 'ada', email: 'ada@example.com' }]; }
+    return [];
+  };
+  const auth = () => ({ api: { createUser: async ({ body }) => { created.push(body.data.username); return { user: { id: `id-${body.data.username}` } }; } } });
+  const people = createPeopleService(query, { auth, groups: {}, setup: { create: async () => ({ token: 't', expiresAt: new Date() }) } });
+  const results = await people.create({ people: [{ username: 'Ada' }, { username: 'grace' }, { username: 'grace' }, { username: 'linus', email: 'ADA@example.com' }], access: { dives: '*', chat: true } }, { scope: { all: true }, viewer: { id: 'admin' }, origin: 'https://app.test' });
+  assert.equal(lookups.length, 1);
+  assert.match(lookups[0].text, /IN \(\$1::VARCHAR, \$2::VARCHAR, \$3::VARCHAR, \$4::VARCHAR\) OR lower\(email\) IN \(\$5::VARCHAR/);
+  assert.deepEqual(results.map(result => result.error ?? 'ok'), ['already_exists', 'ok', 'already_exists', 'already_exists']);
+  assert.deepEqual(created, ['grace']);
+});

@@ -1,5 +1,4 @@
-import { convertToModelMessages, createUIMessageStream, createUIMessageStreamResponse, generateText, isStepCount, Output, streamText, tool } from 'ai';
-import { toUIMessageStream } from 'ai';
+import { convertToModelMessages, createUIMessageStream, createUIMessageStreamResponse, generateText, isStepCount, Output, streamText, toUIMessageStream, tool } from 'ai';
 import { z } from 'zod';
 import { sameOrigin, sanitizeState, sessionCookie } from '../../../lib/security.mjs';
 import { PayloadTooLarge, readRequestText } from '../../../lib/request-body.mjs';
@@ -30,8 +29,8 @@ const requestSchema = z.object({
   previousModel: z.enum(MODEL_KEYS).optional(),
   conversationId: z.string().max(64).optional(),
   state: z.record(z.string(), z.unknown()).default({}),
-  messages: z.array(z.object({ id: z.string().max(200), role: z.enum(['user', 'assistant']), parts: z.array(z.record(z.string(), z.unknown())).max(100) }).passthrough()).min(1).max(24),
-}).passthrough();
+  messages: z.array(z.object({ id: z.string().max(200), role: z.enum(['user', 'assistant']), parts: z.array(z.record(z.string(), z.unknown())).max(100) }).loose()).min(1).max(24),
+}).loose();
 const followUpSchema = z.object({ questions: z.array(z.string().min(3).max(90)).max(3) });
 const failure = (error, status) => Response.json({ error }, { status, headers: NO_STORE });
 const textOf = message => message?.parts.map(p => p.text).join('') ?? '';
@@ -175,7 +174,7 @@ Answer with the conclusion first and the supporting numbers after. Name the tabl
       if (store && conversationId) {
         try {
           const steps = await Promise.resolve(result.steps).catch(() => []);
-          const totals = await Promise.resolve(result.totalUsage).catch(() => null);
+          const totals = await Promise.resolve(result.usage).catch(() => null);
           const status = stopped ? 'stopped' : answer ? 'answered' : 'failed';
           await store.finishTurn({ conversationId, answerId, replyTo: questionId, status, answer: answer || failedText(status === 'failed'), tools: toolReceipts(steps), model, routeReason: metadata().routeReason, usage: totals, workedMs });
           const days = retentionDays();

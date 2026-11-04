@@ -22,8 +22,8 @@ In [accounts mode](accounts.md), administrators can also choose providers and mo
 | `CHAT_PROVIDER=anthropic` | The provider for tiers without an override: `openai`, `anthropic`, `openrouter`, `azure`, `bedrock`, `vertex` or `openai-compatible`. Without it, the first provider whose variables are set is used, OpenAI first, then Anthropic. |
 | `CHAT_MODEL_LUNA=anthropic:claude-haiku-5-5` | Overrides one tier. Use `provider:model`, or a bare model ID for the default provider. Providers can be mixed: a cheap Anthropic Luna with an OpenAI Astra works. |
 | `CHAT_MODEL_UTILITY=openai:gpt-6-luna` | The model for routing and suggested questions. Defaults to the fastest enabled tier. |
-| `CHAT_MODELS=luna,sol` | Limits the tiers people can pick, for example to cap spend. (`OPENAI_CHAT_MODELS` still works.) |
-| `CHAT_DEFAULT_MODEL=auto` | The default choice in the picker: `auto`, a tier, or a model ID. (`OPENAI_MODEL` still works.) |
+| `CHAT_MODELS=luna,sol` | Limits the tiers people can pick, for example to cap spend. |
+| `CHAT_DEFAULT_MODEL=auto` | The default choice in the picker: `auto`, a tier, or a model ID. |
 | `CHAT_ROUTER=off` | Removes Auto. With two or more tiers, Auto is on and is the default. |
 | `OPENAI_BASE_URL` / `ANTHROPIC_BASE_URL` | Sends requests to a compatible gateway or router instead (see [external routers](#use-an-external-router)). |
 

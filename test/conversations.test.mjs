@@ -122,7 +122,7 @@ test('the conversation list can show only those needing attention', async () => 
 test('saved conversations read status, ratings, groups and state', async () => {
   const query = async text => (text.startsWith('SELECT id, user_id') ? [{ id: 'conv-12345678', title: 't' }] : [
     { id: 'q', role: 'user', content: 'Why?', tools: null, dive_state: '{"region":"EMEA"}', group_names: '["Acme"]', status: null },
-    { id: 'a', role: 'assistant', content: '[The answer failed.]', tools: '[]', status: null, feedback: null },
+    { id: 'a', role: 'assistant', content: '[The answer failed.]', tools: '[]', status: 'failed', feedback: null },
     { id: 'b', role: 'assistant', content: 'Fine', tools: '[]', status: 'answered', feedback: 1 },
   ]);
   const { messages } = await createConversationStore(query).get('conv-12345678');
@@ -161,12 +161,18 @@ test('the insights summary reads the chat_questions view and drops the grouping 
   assert.ok(calls.every(call => call.values[0] instanceof Date));
 });
 
-test('the migration adds tracking columns and the chat_questions view', () => {
-  const sql = createStatements(authOptions({ SESSION_SECRET: 'unit-test-secret-with-at-least-32-characters' })).join('\n');
-  for (const column of ['reply_to', 'status', 'feedback', 'feedback_at', 'dive_state', 'group_names']) assert.match(sql, new RegExp(`ALTER TABLE chat_message ADD COLUMN IF NOT EXISTS ${column} `));
-  assert.match(sql, /CREATE OR REPLACE VIEW chat_questions/);
-  // The view comes after the columns it reads.
-  assert.ok(sql.indexOf('ADD COLUMN IF NOT EXISTS group_names') < sql.indexOf('VIEW chat_questions'));
+test('the migration creates each table, adds its nullable columns to older databases, then the view', () => {
+  const statements = createStatements(authOptions({ SESSION_SECRET: 'unit-test-secret-with-at-least-32-characters' }));
+  const sql = statements.join('\n');
+  assert.match(sql, /CREATE TABLE IF NOT EXISTS chat_message \(id VARCHAR PRIMARY KEY, conversation_id VARCHAR NOT NULL, .*reply_to VARCHAR, status VARCHAR, .*group_ids JSON, /);
+  assert.match(sql, /CREATE TABLE IF NOT EXISTS access_group_member \(group_id VARCHAR NOT NULL, .*PRIMARY KEY \(group_id, user_id\)\)/);
+  for (const column of ['reply_to', 'status', 'feedback', 'dive_state', 'group_names', 'topic']) assert.match(sql, new RegExp(`ALTER TABLE chat_message ADD COLUMN IF NOT EXISTS ${column} `));
+  // Required columns exist from creation and are never added later.
+  assert.doesNotMatch(sql, /ADD COLUMN IF NOT EXISTS \w+ \w+ NOT NULL/);
+  // Answers pair with their question by reply_to only, which DuckDB runs as a hash join.
+  assert.match(sql, /LEFT JOIN chat_message a ON a\.reply_to = q\.id AND a\.role = 'assistant'/);
+  assert.doesNotMatch(sql, /lead\(/);
+  assert.equal(statements.at(-1).startsWith('CREATE OR REPLACE VIEW chat_questions'), true);
 });
 
 test('listing filters with parameters and escapes LIKE wildcards; bad ids are refused', async () => {
