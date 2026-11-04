@@ -5,7 +5,7 @@
   "installCommand": "npm ci --ignore-scripts --no-audit --no-fund",
   "crons": [
     {
-      "path": "/api/cron/access-sync",
+      "path": "/api/cron/daily",
       "schedule": "17 4 * * *"
     },
     {

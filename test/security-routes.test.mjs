@@ -58,7 +58,7 @@ test('the cron bearer check needs a CRON_SECRET of 16 characters and the exact t
 
 test('both cron routes refuse anyone without the token and run for the scheduler', async () => {
   const secret = 'cron-secret-0123456789';
-  const routes = { 'access-sync': 'accounts_not_configured', digest: 'conversations_not_saved' };
+  const routes = { daily: 'accounts_not_configured', digest: 'conversations_not_saved' };
   for (const [name, skipped] of Object.entries(routes)) {
     const { GET } = await import(`../app/api/cron/${name}/route.js`);
     const call = authorization => GET(new Request(`https://demo.test/api/cron/${name}`, { headers: authorization ? { authorization } : {} }));
@@ -230,5 +230,22 @@ test('the content security policy carries a fresh nonce and forbids framing', as
     const { csp } = policy();
     assert.match(csp, /script-src [^;]*'unsafe-eval'/, 'only development allows eval');
     assert.match(csp, /(^|; )frame-ancestors 'none'(;|$)/);
+  });
+});
+
+test('the daily run deletes messages past CHAT_RETENTION_DAYS before syncing access', async () => {
+  const secret = 'cron-secret-0123456789';
+  const { GET } = await import('../app/api/cron/daily/route.js');
+  const call = () => GET(new Request('https://demo.test/api/cron/daily', { headers: { authorization: `Bearer ${secret}` } }));
+  await inAccounts({ CRON_SECRET: secret, CHAT_RETENTION_DAYS: '7', MOTHERDUCK_ADMIN_TOKEN: undefined }, async fake => {
+    const response = await call();
+    assert.equal((await response.json()).retention, 'purged');
+    const purge = fake.queries.find(item => item.text.startsWith('DELETE FROM chat_message WHERE created_at <'));
+    assert.ok(purge, 'old messages are deleted');
+    assert.ok(Date.now() - purge.values[0].getTime() >= 7 * 86400000 - 1000);
+  });
+  await inAccounts({ CRON_SECRET: secret, CHAT_RETENTION_DAYS: undefined, MOTHERDUCK_ADMIN_TOKEN: undefined }, async fake => {
+    assert.equal((await (await call()).json()).retention, 'off');
+    assert.ok(!fake.queries.some(item => item.text.startsWith('DELETE FROM chat_message')));
   });
 });

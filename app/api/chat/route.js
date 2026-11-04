@@ -175,8 +175,6 @@ Answer with the conclusion first and the supporting numbers after. Name the tabl
           const totals = await Promise.resolve(result.usage).catch(() => null);
           const status = stopped ? 'stopped' : answer ? 'answered' : 'failed';
           await store.finishTurn({ conversationId, answerId, replyTo: questionId, status, answer: answer || failedText(status === 'failed'), tools: toolReceipts(steps), model, routeReason: metadata().routeReason, usage: totals, workedMs });
-          const days = retentionDays();
-          if (days && Math.random() < 0.02) await store.purgeOlderThan(days);
         } catch (error) { console.error('conversation_save_failed', error?.code ?? error?.name); }
       }
       } finally {

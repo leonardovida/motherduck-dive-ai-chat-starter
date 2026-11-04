@@ -180,7 +180,7 @@ When access is removed, or a person is disabled or deleted, the app revokes the 
 
 **Automatic mode.** Set `MOTHERDUCK_ADMIN_TOKEN` to an **Admin**'s token whose account owns the shares (only a share's owner can grant it). Every change in the portal then triggers a sync in the background, and **MotherDuck access → Sync now** runs one on demand, for example after fixing a failed grant. The app attaches shares for a service account through a five-minute token for that account, which it deletes afterwards. One sync runs at a time across every server instance; a change made during a sync is picked up by one more run straight after it. Removals run before grants, so a Dive alias that moves to another share is detached first and then attached to the new share.
 
-**A daily check.** On Vercel, `vercel.json` schedules `/api/cron/access-sync` once a day, so grants changed outside the app, or a sync that failed, are put right. Set `CRON_SECRET` (any random string of 16 or more characters) for the route to run; Vercel sends it automatically. On other hosts, call the route with `Authorization: Bearer <CRON_SECRET>` from your own scheduler.
+**A daily check.** On Vercel, `vercel.json` schedules `/api/cron/daily` once a day, so grants changed outside the app, or a sync that failed, are put right. The same run deletes messages older than `CHAT_RETENTION_DAYS`. Set `CRON_SECRET` (any random string of 16 or more characters) for the route to run; Vercel sends it automatically. On other hosts, call the route with `Authorization: Bearer <CRON_SECRET>` from your own scheduler.
 
 **Manual mode.** Without the token nothing changes in MotherDuck by itself. **MotherDuck access** lists what is waiting, and the exact SQL for the share owner to run, including the `REVOKE` and `DETACH` statements when access is taken away. After running it, press **Mark as done**: the grants and removals in the SQL on screen are settled. Anything that changed after the page loaded stays listed. Organizations that keep administrative tokens out of web apps can use this mode, and groups with a service account then have no chat.
 
@@ -199,7 +199,7 @@ In accounts mode conversations are saved by default, and the chat panel tells pe
 | Setting | Effect |
 | --- | --- |
 | `CHAT_HISTORY=off` | Nothing is saved, and the notice disappears. |
-| `CHAT_RETENTION_DAYS=90` | Messages older than 90 days are deleted automatically. |
+| `CHAT_RETENTION_DAYS=90` | Messages older than 90 days are deleted by the daily scheduled run (`/api/cron/daily`, which needs `CRON_SECRET`). Their tokens then no longer count toward a group's monthly allowance, so keep it at 31 days or more when you use allowances. |
 
 Saved answers keep the SQL and row counts, but **never the result rows**, so the app database does not become a copy of your data. Each question also keeps the asker's group names and the Dive's state (its filters and selections, up to 8 KB). Tell your users how long you keep conversations and who can read them.
 
@@ -269,7 +269,7 @@ To set one up:
 
 1. Set up accounts mode as above, and create the shared account with `npm run admin:create -- --username=demo`.
 2. While `PUBLIC_DEMO` is still off, add a few example people in the admin portal, so visitors have something to look at. Use made-up names and no real email addresses, because every visitor can see them.
-3. Set `PUBLIC_DEMO=true`, `CHAT_MODELS=luna` (or the tiers you want to pay for) and a short `CHAT_RETENTION_DAYS`, such as `7`.
+3. Set `PUBLIC_DEMO=true`, `CHAT_MODELS=luna` (or the tiers you want to pay for) and a short `CHAT_RETENTION_DAYS`, such as `7`, with `CRON_SECRET` so the daily run deletes old conversations.
 4. Publish the username and password where you want visitors to find them, and set `PUBLIC_DEMO_SIGN_IN_URL` to that page so the sign-in page links to it. Set a monthly spending limit with your model provider, because anyone with the sign-in can ask questions.
 
 ## How it is built
