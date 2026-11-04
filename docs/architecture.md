@@ -24,7 +24,7 @@ The dashboard retains `useDiveState` values when its embed session renews. Chang
 
 The chat panel loads lazily. Tool outputs remain available as SQL receipts in the UI; only bounded narrative history is sent back to the model. Suggested follow-up questions are optional because they require another model call. Closing a chat panel cancels the active answer and retains bounded in-memory history for the signed-in session.
 
-Every server route is a Next.js route handler under `app/api/` that takes a web `Request` and returns a private, no-store `Response`. Routes read bodies through `lib/request-body.mjs`, which caps the bytes before parsing, and use the checks in `lib/security.mjs` and `lib/admin-api.mjs` directly. The unit tests import the route modules and call them with `Request` objects, without booting Next.js.
+Every server route is a Next.js route handler under `app/api/` that takes a web `Request` and returns a private, no-store `Response`. Routes read bodies through `lib/request-body.mjs`, which caps the bytes before parsing, and use the checks in `lib/security.mjs` and `lib/admin-api.mjs` directly. The unit tests import the route modules and call them with `Request` objects, without booting Next.js. The browser tests in `e2e/` boot the app with `next dev` (production mode accepts only HTTPS origins), set `MOTHERDUCK_API_URL` and `OPENAI_BASE_URL` to local stand-ins, and serve a stand-in Dive page in place of the MotherDuck embed.
 
 ## Accounts and saved conversations
 

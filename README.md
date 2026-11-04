@@ -226,6 +226,7 @@ flowchart LR
 | --- | --- |
 | `npm run dev` | Starts the app at http://localhost:3000. |
 | `npm test` | Runs the test suite. It needs no credentials. |
+| `npm run test:e2e` | Drives the app in Chromium against local stand-ins for MotherDuck and the model. It needs no credentials. Run `npx playwright install chromium` once first. |
 | `npm run build` | Builds for production. |
 | `npm run check:setup` | Lists missing settings. Add `-- --live` to test the real connections. |
 | `npm run --silent setup -- --json` | The same check as JSON for agents, with chat required. |
@@ -245,8 +246,9 @@ Where things live:
 - `lib/chat-models.mjs`, `lib/model-router.mjs`: providers, tiers and Auto routing.
 - `app/api/` and `lib/`: sign-in, embed sessions, the SQL guard, request limits and saved conversations.
 - `test/`: regression tests that need no credentials.
+- `e2e/`: browser tests, with stand-ins for the MotherDuck API, the embedded Dive and the model.
 
-More detail: [configuration](docs/configuration.md), [accounts and SSO](docs/accounts.md), [models and routing](docs/model-routing.md), [architecture](docs/architecture.md), [verification record](docs/verification.md) and [agent setup](docs/agent-setup.md). CI runs the tests and a build without secrets. Repository secrets never configure the deployed app.
+More detail: [configuration](docs/configuration.md), [accounts and SSO](docs/accounts.md), [models and routing](docs/model-routing.md), [architecture](docs/architecture.md), [verification record](docs/verification.md) and [agent setup](docs/agent-setup.md). CI runs the tests, the browser tests and a build without secrets. Repository secrets never configure the deployed app.
 
 ## License
 

@@ -30,6 +30,7 @@ npm run --silent setup -- --json --production # also checks sign-in settings
 | `MOTHERDUCK_EMBED_USERNAME` | Yes | The **read-only service account** the embedded Dive runs as. Viewers see only what this account can read. | The exact username of a service account in the same organization. |
 | `DIVE_OVERVIEW_ID` | Yes | The ID of the saved Dive to show. | The Dive's URL in MotherDuck, or `list_dives` in the MotherDuck MCP server. The included `dives/starter.tsx` can be saved as a first Dive. |
 | `DIVE_OVERVIEW_VERSION` | No | Pins a specific saved version of the Dive, so later edits do not appear until you update the pin. | The Dive's version history. |
+| `MOTHERDUCK_API_URL` | No | Sends the server's MotherDuck REST calls (embed sessions, setup checks, access sync) to another address. The end-to-end tests point it at a local stand-in. Leave it unset in real deployments. | Defaults to `https://api.motherduck.com`. |
 
 ### Accounts, admin portal and SSO
 
