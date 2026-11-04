@@ -3,6 +3,8 @@ import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const nextConfig = {
+  // The end-to-end tests run their own dev server, so they build into another directory.
+  distDir: process.env.NEXT_DIST_DIR || '.next',
   reactStrictMode: true,
   poweredByHeader: false,
   async headers() {

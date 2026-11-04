@@ -4,6 +4,7 @@ import { NO_STORE, failure } from '../../../lib/admin-api.mjs';
 import { canSeeDive, getViewer } from '../../../lib/viewer.mjs';
 import { getDive } from '../../../lib/dives.mjs';
 import { diveIdentity } from '../../../lib/groups.mjs';
+import { motherDuckApi } from '../../../lib/motherduck-api.mjs';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -11,27 +12,24 @@ export const maxDuration = 30;
 
 // Creates a short-lived MotherDuck embed session for one configured Dive. The browser
 // names a Dive key only; service-account credentials and share URLs stay on the server.
-// GET takes the Dive and theme from the query; POST also carries the Dive state to start from,
-// so it must come from this site.
-async function embedSession(request, { post }) {
+// The request names the Dive and theme, and the Dive state to start from, so it must come from
+// this site.
+export async function POST(request) {
   const viewer = await getViewer(request.headers, process.env, undefined, { fresh: true });
   if (!viewer) return failure('authentication_required', 401);
-  let body = {};
-  if (post) {
-    if (!sameOrigin(request)) return failure('origin_not_allowed', 403);
-    try { body = await readJsonBody(request, 16384); }
-    catch (error) { return error instanceof PayloadTooLarge ? failure('request_too_large', 413) : failure('invalid_body', 400); }
-  }
-  const query = new URL(request.url).searchParams;
-  const dive = getDive(String(body?.dive || query.get('dive') || ''));
+  if (!sameOrigin(request)) return failure('origin_not_allowed', 403);
+  let body;
+  try { body = await readJsonBody(request, 16384); }
+  catch (error) { return error instanceof PayloadTooLarge ? failure('request_too_large', 413) : failure('invalid_body', 400); }
+  const dive = getDive(String(body?.dive || ''));
   if (!dive || !canSeeDive(viewer, dive.key)) return failure('invalid_dive', 400);
-  const theme = body?.theme || query.get('theme') || 'light';
+  const theme = body?.theme || 'light';
   if (!['dark', 'light'].includes(theme)) return failure('invalid_theme', 400);
   if (!dive.connected) return Response.json({ error: 'embedding_not_configured', missing: dive.missing }, { status: 503, headers: NO_STORE });
   // A data group's members see the Dive as the group's service account, against its databases.
   const identity = diveIdentity(dive, viewer);
   try {
-    const upstream = await fetch(`https://api.motherduck.com/v1/dives/${dive.id}/embed-session`, {
+    const upstream = await fetch(`${motherDuckApi()}/dives/${dive.id}/embed-session`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${process.env.MOTHERDUCK_EMBED_TOKEN}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -59,5 +57,3 @@ async function embedSession(request, { post }) {
   }
 }
 
-export const GET = request => embedSession(request, { post: false });
-export const POST = request => embedSession(request, { post: true });
