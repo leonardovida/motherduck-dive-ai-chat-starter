@@ -209,6 +209,8 @@ The server must be reachable from where the app runs. A hosted app (for example 
 
 `OPENAI_COMPATIBLE_API_KEY` is sent only to `OPENAI_COMPATIBLE_BASE_URL`. A base URL typed into the Models tab gets no key, which suits keyless servers such as Ollama. For a server that needs a key, put its URL in `OPENAI_COMPATIBLE_BASE_URL`.
 
+The app does not ask a self-hosted server for token counts while it streams, because some servers refuse fields they do not know. Answers from a server that does not report usage on its own are saved without token counts, so they do not count toward a group's monthly allowance or the estimated cost.
+
 ## The admin Models tab
 
 In accounts mode, administrators open **Admin > Models** (`/admin#models`). Group managers do not see it.
