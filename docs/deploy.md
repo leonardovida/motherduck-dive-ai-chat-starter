@@ -54,6 +54,8 @@ Each release publishes `ghcr.io/leonardovida/motherduck-dive-ai-chat-starter:<ve
 
 A fork publishes its own image, `ghcr.io/<owner>/<repo>`, when it pushes a release tag (`.github/workflows/container.yml`). GitHub may create the package as private: open the package's settings on GitHub and set its visibility to **Public** once, so the clouds can pull it without credentials. To build the image yourself, run `docker build -t dive-chat .` at the repository root.
 
+The published image is built for `linux/amd64`, which all three deployments use. On an Apple silicon Mac it runs under emulation, so for local testing build it yourself, which builds for your own processor.
+
 The image runs `node server.js`, Next.js's production server, as a non-root user on port 3000. `GET /api/auth` returns 200 when the app is up, so the deployments use it as their health check.
 
 ## AWS

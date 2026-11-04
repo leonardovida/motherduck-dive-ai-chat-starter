@@ -14,6 +14,7 @@ import { downloadBlob } from "@/lib/download.mjs";
 import { FEEDBACK_REASONS, MIN_PASSWORD_LENGTH, fill, plural } from "@/lib/text.mjs";
 import { useLatestRequest } from "@/hooks/use-latest-request";
 import ModelsTab from "./ModelsTab.jsx";
+import { describeDetail } from "./activity-detail.mjs";
 
 // All interface text in one place, like the main app.
 const COPY = {
@@ -1187,9 +1188,6 @@ function ActivityTab() {
     } catch (error) { if (!signal.aborted) setState({ loading: false, error: reasonFor(error), more: false }); }
   }, [filters, request]);
   React.useEffect(() => { const timer = setTimeout(() => load(0), 250); return () => { clearTimeout(timer); request.abort(); }; }, [load, request]);
-  // Nested objects, such as the model tiers, read as "key value" pairs rather than [object Object].
-  const show = value => (Array.isArray(value) ? value.join(", ") || "—" : value && typeof value === "object" ? Object.entries(value).map(([key, inner]) => `${key} ${show(inner)}`).join(", ") || "—" : String(value));
-  const describe = detail => (detail && typeof detail === "object" ? Object.entries(detail).filter(([, value]) => value !== null && value !== undefined && value !== "").map(([key, value]) => `${key}: ${show(value)}`).join(" · ") : "");
   return (
     <Card>
       <CardHeader className="grid gap-3">
@@ -1209,7 +1207,7 @@ function ActivityTab() {
           {events.map(event => (
             <li key={event.id} className="grid gap-0.5 border-b border-border py-2 text-sm last:border-b-0">
               <span><span className="font-medium">{event.actor_label || "—"}</span>: {COPY.actions[event.action] || event.action}{event.target_label && <> <span className="font-medium">{event.target_label}</span></>}</span>
-              <span className="text-xs text-muted-foreground">{[dateTime(event.created_at), describe(event.detail)].filter(Boolean).join(" · ")}</span>
+              <span className="text-xs text-muted-foreground">{[dateTime(event.created_at), describeDetail(event.detail)].filter(Boolean).join(" · ")}</span>
             </li>
           ))}
         </ol>
