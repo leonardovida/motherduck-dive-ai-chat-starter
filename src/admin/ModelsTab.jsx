@@ -326,7 +326,7 @@ export default function ModelsTab({ demo = false }) {
     const entry = key === "utility" ? draft.utility : draft.tiers[key];
     setResults(current => ({ ...current, [key]: { pending: true } }));
     try {
-      const result = await api("/api/admin/models", { method: "POST", body: JSON.stringify({ tier: key, ...(entry.inherit ? {} : { config: clean(overview.providers, entry) }) }) });
+      const result = await api("/api/admin/models", { method: "POST", body: JSON.stringify({ tier: key, ...(entry.inherit ? { inherit: true } : { config: clean(overview.providers, entry) }) }) });
       setResults(current => ({ ...current, [key]: result }));
     } catch (error) { setResults(current => ({ ...current, [key]: { ok: false, error: reasonFor(error) } })); }
   };

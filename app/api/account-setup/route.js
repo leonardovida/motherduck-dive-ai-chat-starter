@@ -4,7 +4,8 @@ import { createSetupStore } from '../../../lib/account-setup.mjs';
 import { sameOrigin } from '../../../lib/security.mjs';
 import { DEMO_READ_ONLY, publicDemo } from '../../../lib/public-demo.mjs';
 import { audit } from '../../../lib/audit.mjs';
-import { NO_STORE, failure } from '../../../lib/admin-api.mjs';
+import { NO_STORE, failure, badBody } from '../../../lib/admin-api.mjs';
+import { readJsonBody } from '../../../lib/request-body.mjs';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -17,7 +18,7 @@ export async function POST(request) {
   if (refused) return refused;
   if (!sameOrigin(request)) return failure('origin_not_allowed', 403);
   let body;
-  try { body = z.object({ token: z.string().max(64), password: z.string().max(256).optional() }).parse(await request.json()); } catch { return failure('invalid_setup', 400); }
+  try { body = z.object({ token: z.string().max(64), password: z.string().max(256).optional() }).parse(await readJsonBody(request, 4096)); } catch (error) { return badBody(error, 'invalid_setup'); }
   const store = createSetupStore();
   try {
     if (body.password === undefined) {

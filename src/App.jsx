@@ -166,6 +166,8 @@ const COPY = {
   passwordSetupSubmit: "Set password and sign in",
   passwordSetupSaving: "Setting your password…",
   passwordSetupToSignIn: "Go to sign-in",
+  passwordSetupDone: "Your password is set, but signing in did not work this time. Sign in with your username and new password.",
+  signOutFailed: "Signing out did not work. Try again.",
 };
 
 function readStored(key, fallback) {
@@ -174,6 +176,18 @@ function readStored(key, fallback) {
   } catch {
     return fallback;
   }
+}
+
+// True when the page already reloaded for an ended session in the last minute.
+function reloadedForSignIn() {
+  try {
+    const last = Number(window.sessionStorage.getItem("dive_app_auth_reload"));
+    if (Date.now() - last < 60000) return true;
+    window.sessionStorage.setItem("dive_app_auth_reload", String(Date.now()));
+  } catch {
+    // Without storage, reload once per page load.
+  }
+  return false;
 }
 
 function writeStored(key, value) {
@@ -386,7 +400,9 @@ function SetupPasswordView({ appTitle, token, theme, setTheme, onDone }) {
     try {
       const data = await request("/api/account-setup", { method: "POST", body: JSON.stringify({ token, password: form.password }) });
       const { authClient } = await import("./lib/auth-client.js");
-      await authClient.signIn.username({ username: data.username, password: form.password });
+      // The link is used up by now, so a failed sign-in says the password is set and where to go.
+      const { error: signInError } = await authClient.signIn.username({ username: data.username, password: form.password });
+      if (signInError) { setStatus("set"); return; }
       onDone();
     } catch (error) {
       const invalid = error.message === "setup_link_invalid";
@@ -402,10 +418,10 @@ function SetupPasswordView({ appTitle, token, theme, setTheme, onDone }) {
         <Card className="login-card">
           <CardHeader>
             <CardTitle id="setup-title" className="login-title">{COPY.passwordSetupTitle}</CardTitle>
-            <CardDescription>{status === "checking" ? COPY.passwordSetupChecking : status === "invalid" ? COPY.passwordSetupInvalid : fill(COPY.passwordSetupBody, { name: person?.name || person?.username, username: person?.username })}</CardDescription>
+            <CardDescription>{status === "checking" ? COPY.passwordSetupChecking : status === "invalid" ? COPY.passwordSetupInvalid : status === "set" ? COPY.passwordSetupDone : fill(COPY.passwordSetupBody, { name: person?.name || person?.username, username: person?.username })}</CardDescription>
           </CardHeader>
           <CardContent>
-            {status === "invalid" ? <Button className="login-submit" onClick={onDone}>{COPY.passwordSetupToSignIn}</Button> : status !== "checking" && (
+            {status === "invalid" || status === "set" ? <Button className="login-submit" onClick={onDone}>{COPY.passwordSetupToSignIn}</Button> : status !== "checking" && (
               <form className="login-form" onSubmit={submit} noValidate aria-labelledby="setup-title">
                 <input type="text" name="username" autoComplete="username" value={person?.username || ""} readOnly hidden />
                 <div className="login-field"><Label htmlFor="setup-password">{COPY.passwordSetupPassword}</Label><Input id="setup-password" type="password" autoComplete="new-password" value={form.password} onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))} autoFocus aria-describedby="setup-status" disabled={status === "saving"} /></div>
@@ -464,6 +480,7 @@ function ChangePasswordSheet({ open, onOpenChange }) {
 
 function DiveSidebar({ dives, selectedKey, onSelect, onSignOut, user, demo }) {
   const [passwordOpen, setPasswordOpen] = React.useState(false);
+  const [signOutFailed, setSignOutFailed] = React.useState(false);
   const { isMobile, setOpenMobile } = useSidebar();
   const select = (key) => {
     onSelect(key);
@@ -513,9 +530,10 @@ function DiveSidebar({ dives, selectedKey, onSelect, onSignOut, user, demo }) {
             </SidebarMenuItem>
           )}
           <SidebarMenuItem>
-            <SidebarMenuButton className="sign-out-button" onClick={onSignOut} title={user?.name ? fill(COPY.signedInAs, { name: user.username || user.name }) : undefined}><LogOut aria-hidden="true" /><span>{COPY.signOut}</span></SidebarMenuButton>
+            <SidebarMenuButton className="sign-out-button" onClick={async () => setSignOutFailed(!(await onSignOut()))} title={user?.name ? fill(COPY.signedInAs, { name: user.username || user.name }) : undefined}><LogOut aria-hidden="true" /><span>{COPY.signOut}</span></SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
+        {signOutFailed && <p className="sidebar-error" role="alert">{COPY.signOutFailed}</p>}
       </SidebarFooter>
     </Sidebar>
     </>
@@ -652,7 +670,10 @@ function DiveFrame({ theme, dive, onStatusChange, onStateChange }) {
         return;
       }
       if (error.message === "authentication_required") {
-        window.location.reload();
+        // Reloading shows sign-in. The page may still look signed in for up to a minute (the
+        // session check is cached), so a second refusal shows the error instead of reloading again.
+        if (reloadedForSignIn()) setStatus("error");
+        else window.location.reload();
         return;
       }
       if (attempt < RETRY_DELAYS.length) {
@@ -721,7 +742,13 @@ function DiveFrame({ theme, dive, onStatusChange, onStateChange }) {
   return (
     <div className="workbench-frame-region">
       <LinkBanner request={linkRequest} onDismiss={() => setLinkRequest(null)} />
-      {exportFailed && <Alert variant="destructive" className="export-alert" role="alert"><CircleAlert aria-hidden="true" /><AlertTitle>{COPY.exportFailed}</AlertTitle></Alert>}
+      {exportFailed && (
+        <Alert variant="destructive" className="export-alert" role="alert">
+          <CircleAlert aria-hidden="true" />
+          <AlertTitle>{COPY.exportFailed}</AlertTitle>
+          <AlertAction><Button size="xs" variant="ghost" onClick={() => setExportFailed(false)}>{COPY.dismiss}</Button></AlertAction>
+        </Alert>
+      )}
       <div className="frame-wrap">
         {status === "loading" && <DiveSkeleton />}
         {status === "configuration" && <SetupCard dive={dive} missing={dive.connected ? missing : dive.missing} />}
@@ -828,7 +855,7 @@ function MainContent({ appTitle, theme, setTheme, dive, dives, onSelectDive, onS
         <BreadcrumbList>
           <BreadcrumbItem className="topbar-crumb-parent">{appTitle}</BreadcrumbItem>
           <BreadcrumbSeparator className="topbar-crumb-parent" />
-          <BreadcrumbItem><BreadcrumbPage>{dive.title}</BreadcrumbPage></BreadcrumbItem>
+          <BreadcrumbItem className="topbar-crumb-current"><BreadcrumbPage title={dive.title}>{dive.title}</BreadcrumbPage></BreadcrumbItem>
         </BreadcrumbList>
       </Breadcrumb>
       <div className="workspace-topbar-actions">
@@ -875,7 +902,7 @@ function MainContent({ appTitle, theme, setTheme, dive, dives, onSelectDive, onS
     <div className="app-shell">
       {header}
       <ResizablePanelGroup elementRef={layoutRef} orientation="horizontal" resizeTargetMinimumSize={{ fine: 18, coarse: 32 }} onLayoutChanged={rememberSidebar} className="app-layout desktop-layout">
-        <ResizablePanel id="navigation" panelRef={navigationRef} collapsible collapsedSize="0px" groupResizeBehavior="preserve-pixel-size" defaultSize={`${sidebarDefaultWidth}px`} minSize="190px" maxSize="420px" className="sidebar-panel">{sidebar}</ResizablePanel>
+        <ResizablePanel id="navigation" panelRef={navigationRef} collapsible collapsedSize="0px" groupResizeBehavior="preserve-pixel-size" defaultSize={`${sidebarDefaultWidth}px`} minSize="190px" maxSize="420px" className="sidebar-panel" inert={sidebarCollapsed}>{sidebar}</ResizablePanel>
         <ResizableHandle
           withHandle
           className="sidebar-resizer"
@@ -915,7 +942,9 @@ function AuthenticatedApp({ appTitle, theme, setTheme, dives, selectedKey, setSe
 }
 
 export default function App() {
-  const [theme, setTheme] = useStoredPreference("dive_app_theme", "light");
+  const [storedTheme, setTheme] = useStoredPreference("dive_app_theme", "light");
+  // Anything else in storage would be sent to the embed route, which refuses it.
+  const theme = storedTheme === "dark" ? "dark" : "light";
   const [diveKey, setDiveKey] = useStoredPreference("dive_app_dive", "");
   const [setupToken, setSetupToken] = React.useState(SETUP_TOKEN);
   const [auth, setAuth] = React.useState({ state: "checking", appTitle: COPY.defaultTitle, devPassword: "", mode: "password", sso: [], user: null, demo: { on: false, signInUrl: "" } });
@@ -1005,8 +1034,10 @@ export default function App() {
       clearChatSession();
       setDives([]);
       setAuth((current) => ({ ...current, state: "unauthenticated" }));
+      return true;
     } catch {
       // The shell stays mounted, so the viewer does not see a false success state.
+      return false;
     }
   };
 

@@ -41,3 +41,11 @@ test('a limiter that evicts forgets the oldest bucket when full, instead of refu
   assert.equal(limiter.blocked('a'), false, 'the oldest bucket made room');
   assert.equal(limiter.blocked('c'), true);
 });
+
+test('junk usernames make room by evicting unblocked buckets, so a blocked account stays blocked', () => {
+  const limiter = createFailureLimiter({ limit: 3, maxKeys: 3, evict: true });
+  for (let i = 0; i < 3; i++) limiter.failed('victim');
+  for (let i = 0; i < 50; i++) limiter.failed(`junk${i}`);
+  assert.equal(limiter.blocked('victim'), true);
+  assert.equal(limiter.blocked('someone-new'), false, 'new accounts can still try');
+});

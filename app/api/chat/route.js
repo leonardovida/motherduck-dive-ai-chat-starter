@@ -23,11 +23,17 @@ export const runtime = 'nodejs';
 export const maxDuration = 300;
 const usage = new Map();
 const UNAVAILABLE = 'Chat is temporarily unavailable. Try again.';
+const addUsage = steps => (steps.length ? {
+  inputTokens: steps.reduce((sum, step) => sum + (step.usage?.inputTokens ?? 0), 0),
+  outputTokens: steps.reduce((sum, step) => sum + (step.usage?.outputTokens ?? 0), 0),
+} : null);
 const requestSchema = z.object({
   dive: z.string().max(40),
   model: z.enum([...MODEL_KEYS, AUTO]).optional(),
   previousModel: z.enum(MODEL_KEYS).optional(),
   conversationId: z.string().max(64).optional(),
+  // Set by Retry: the last question is asked again rather than asked anew.
+  retry: z.boolean().optional(),
   state: z.record(z.string(), z.unknown()).default({}),
   messages: z.array(z.object({ id: z.string().max(200), role: z.enum(['user', 'assistant']), parts: z.array(z.record(z.string(), z.unknown())).max(100) }).loose()).min(1).max(24),
 }).loose();
@@ -123,10 +129,15 @@ Answer with the conclusion first and the supporting numbers after. Name the tabl
   // Saving never blocks or breaks an answer: storage failures are logged and the chat continues.
   const store = recordingEnabled() ? createConversationStore() : null;
   let conversationId = null;
-  const questionId = randomUUID(), answerId = randomUUID();
+  let questionId = randomUUID();
+  const answerId = randomUUID();
   if (store) {
-    try { conversationId = await store.startTurn({ conversationId: body.conversationId, viewer, diveKey: dive.key, question: textOf(messages.at(-1)), questionId, state, sessionId: conversationOwner(viewer, publicDemo()).sessionId }); }
-    catch (error) { console.error('conversation_save_failed', error?.code ?? error?.name); }
+    const turn = { conversationId: body.conversationId, viewer, diveKey: dive.key, question: textOf(messages.at(-1)), sessionId: conversationOwner(viewer, publicDemo()).sessionId };
+    try {
+      const retried = body.retry ? await store.retryTurn(turn) : null;
+      if (retried) { questionId = retried; conversationId = body.conversationId; }
+      else conversationId = await store.startTurn({ ...turn, questionId, state });
+    } catch (error) { console.error('conversation_save_failed', error?.code ?? error?.name); }
   }
   const metadata = extra => ({ model: model.key, auto: Boolean(route), ...(route ? { routeReason: [route.reason, ...escalations].join('; ') } : {}), ...(conversationId ? { conversationId, answerId } : {}), ...extra });
   const stream = createUIMessageStream({
@@ -134,6 +145,9 @@ Answer with the conclusion first and the supporting numbers after. Name the tabl
     execute: async ({ writer }) => {
       try {
       let failed = false; const started = Date.now(); let answerStarted = null; let partial = '';
+      // Kept as each step ends: a stopped run rejects result.steps and result.usage, and its
+      // tokens still count toward the group's allowance and the cost estimate.
+      const finishedSteps = [];
       // In auto mode the run may escalate, so it gets the step and output budget of the deepest tier.
       const budget = route ? TIERS[enabled.at(-1)] : model;
       const result = streamText({
@@ -142,24 +156,34 @@ Answer with the conclusion first and the supporting numbers after. Name the tabl
           const next = escalation({ steps, tier: model.key, enabled });
           if (!next) return {};
           model = tierModel(next.tier); escalations.push(next.reason);
-          return { model: languageModel(model) };
+          return { model: languageModel(model), reasoning: model.reasoning };
         } : undefined,
-        providerOptions: PROVIDER_OPTIONS, onError: () => { console.error('chat_generation_failed', model.provider, model.key); },
+        providerOptions: PROVIDER_OPTIONS, onStepEnd: step => { finishedSteps.push(step); }, onError: () => { console.error('chat_generation_failed', model.provider, model.key); },
       });
       // Pipe the answer in order, then append follow-ups and a single finish chunk.
-      const reader = toUIMessageStream({ stream: result.stream, sendFinish: false, sendReasoning: true, messageMetadata: ({ part }) => (part.type === 'start' ? metadata() : undefined), onError: () => { failed = true; return UNAVAILABLE; } }).getReader();
+      // onError also names failed tool calls; the model sees those and usually recovers, so only an
+      // error chunk fails the answer.
+      const reader = toUIMessageStream({ stream: result.stream, sendFinish: false, sendReasoning: true, messageMetadata: ({ part }) => (part.type === 'start' ? metadata() : undefined), onError: () => UNAVAILABLE }).getReader();
       // Text written between tool steps is narration; the answer starts with the last step's text.
       // The text streamed so far is kept, so a stopped answer is saved as far as it got.
       try {
         for (;;) {
           const { done, value } = await reader.read();
           if (done) break;
-          if (value.type === 'start-step') { answerStarted = null; partial = ''; }
+          if (value.type === 'error') failed = true;
+          else if (value.type === 'start-step') { answerStarted = null; partial = ''; }
           else if (value.type === 'text-start' && answerStarted == null) answerStarted = Date.now();
           else if (value.type === 'text-delta') partial += value.delta ?? '';
           writer.write(value);
         }
-      } catch (error) { if (!request.signal.aborted) throw error; }
+      } catch (error) {
+        if (!request.signal.aborted) {
+          // Still saved below as a failed answer, so the question is not left without one.
+          console.error('chat_stream_failed', error?.name);
+          failed = true;
+          writer.write({ type: 'error', errorText: UNAVAILABLE });
+        }
+      }
       const stopped = request.signal.aborted && !failed;
       const answer = failed ? '' : stopped ? partial.trim() : await Promise.resolve(result.text).catch(() => '');
       if (!stopped && answer.trim() && process.env.CHAT_FOLLOW_UPS === 'true') {
@@ -171,8 +195,8 @@ Answer with the conclusion first and the supporting numbers after. Name the tabl
       writer.write({ type: 'finish', messageMetadata: metadata({ workedMs }) });
       if (store && conversationId) {
         try {
-          const steps = await Promise.resolve(result.steps).catch(() => []);
-          const totals = await Promise.resolve(result.usage).catch(() => null);
+          const steps = await Promise.resolve(result.steps).catch(() => finishedSteps);
+          const totals = await Promise.resolve(result.usage).catch(() => addUsage(finishedSteps));
           const status = stopped ? 'stopped' : answer ? 'answered' : 'failed';
           await store.finishTurn({ conversationId, answerId, replyTo: questionId, status, answer: answer || failedText(status === 'failed'), tools: toolReceipts(steps), model, routeReason: metadata().routeReason, usage: totals, workedMs });
         } catch (error) { console.error('conversation_save_failed', error?.code ?? error?.name); }

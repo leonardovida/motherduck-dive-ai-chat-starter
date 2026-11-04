@@ -361,7 +361,7 @@ test('the migration creates the group, grant and setup tables and the MotherDuck
 // A tiny app database for the manager rules: users, memberships and linked sign-in accounts.
 function peopleDatabase({ users, members, accounts = [] }) {
   return async (text, values = []) => {
-    if (text.startsWith('SELECT role FROM "user"')) return users.filter(user => user.id === values[0]);
+    if (text.startsWith('SELECT role, "diveAccess", "chatAccess" FROM "user"')) return users.filter(user => user.id === values[0]);
     if (text.startsWith('SELECT role, banned FROM "user"')) return users.filter(user => user.id === values[0]);
     if (text.startsWith('SELECT group_id, manager FROM access_group_member')) return members.filter(row => row.user_id === values[0]);
     if (text.startsWith('SELECT group_id FROM access_group_member')) return members.filter(row => row.user_id === values[0] && row.manager);
@@ -375,11 +375,15 @@ function peopleDatabase({ users, members, accounts = [] }) {
 test('a group manager reaches only people who belong to nothing but the groups they manage', async () => {
   const { createGroupStore } = await import('../lib/groups.mjs');
   const query = peopleDatabase({
-    users: [{ id: 'lena', role: 'user' }, { id: 'jules', role: 'user' }, { id: 'both', role: 'user' }, { id: 'boss', role: 'admin' }, { id: 'peer', role: 'user' }],
+    users: [
+      { id: 'lena', role: 'user' }, { id: 'jules', role: 'user', diveAccess: '', chatAccess: false }, { id: 'both', role: 'user' }, { id: 'boss', role: 'admin' }, { id: 'peer', role: 'user' },
+      { id: 'carol', role: 'user', diveAccess: '*', chatAccess: true }, { id: 'dina', role: 'user', diveAccess: 'overview', chatAccess: false },
+    ],
     members: [
       { user_id: 'lena', group_id: 'g-acme', manager: true }, { user_id: 'jules', group_id: 'g-acme', manager: false },
       { user_id: 'both', group_id: 'g-acme', manager: false }, { user_id: 'both', group_id: 'g-globex', manager: false },
       { user_id: 'boss', group_id: 'g-acme', manager: false }, { user_id: 'peer', group_id: 'g-acme', manager: true },
+      { user_id: 'carol', group_id: 'g-acme', manager: false }, { user_id: 'dina', group_id: 'g-acme', manager: false },
     ],
   });
   const groups = createGroupStore(query);
@@ -389,6 +393,9 @@ test('a group manager reaches only people who belong to nothing but the groups t
   assert.equal(await groups.managerReaches(['g-acme'], 'boss'), false, 'administrators stay out of reach');
   assert.equal(await groups.managerReaches(['g-acme'], 'peer'), false, 'another manager stays out of reach');
   assert.equal(await groups.managerReaches(['g-acme'], 'nobody'), false);
+  // A setup link for someone with their own access would hand the manager that access.
+  assert.equal(await groups.managerReaches(['g-acme'], 'carol'), false, 'own access keeps a person with the administrators');
+  assert.equal(await groups.managerReaches(['g-acme'], 'dina'), false, 'so does a single Dive of their own');
 });
 
 test('a manager\'s setup link stops working once the person is out of the manager\'s reach or uses single sign-on', async () => {

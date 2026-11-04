@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { NO_STORE, failure, requireAdmin } from '../../../../lib/admin-api.mjs';
+import { NO_STORE, failure, requireAdmin, badBody } from '../../../../lib/admin-api.mjs';
+import { PayloadTooLarge, readJsonBody } from '../../../../lib/request-body.mjs';
 import { confirmManualSql, requestSync, syncStatus } from '../../../../lib/access-sync.mjs';
 import { motherDuckAdmin } from '../../../../lib/motherduck-admin.mjs';
 import { publicDemo } from '../../../../lib/public-demo.mjs';
@@ -37,7 +38,7 @@ export async function POST(request) {
   const { response, viewer } = await requireAdmin(request, { write: true });
   if (response) return response;
   let body;
-  try { body = z.object({ confirm: z.array(z.object({ grantee: z.string().max(128), url: z.string().max(300) })).max(5000).optional() }).parse(await request.json().catch(() => ({}))); } catch { return failure('invalid_sync', 400); }
+  try { body = z.object({ confirm: z.array(z.object({ grantee: z.string().max(128), url: z.string().max(300) })).max(5000).optional() }).parse(await readJsonBody(request, 2500000).catch(error => { if (error instanceof PayloadTooLarge) throw error; return {}; })); } catch (error) { return badBody(error, 'invalid_sync'); }
   if (body.confirm) {
     if (motherDuckAdmin().configured()) return failure('automatic_mode', 409);
     try {

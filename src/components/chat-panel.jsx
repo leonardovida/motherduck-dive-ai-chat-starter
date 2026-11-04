@@ -598,7 +598,7 @@ function ChatSession({ dive, state, ready, frameStatus, onClose }) {
     () => new DefaultChatTransport({
       api: "/api/chat",
       credentials: "same-origin",
-      prepareSendMessagesRequest: ({ messages, body }) => {
+      prepareSendMessagesRequest: ({ messages, body, trigger }) => {
         const latest = latestProps.current;
         return { body: {
           ...body,
@@ -606,6 +606,7 @@ function ChatSession({ dive, state, ready, frameStatus, onClose }) {
           state: latest.state || {},
           ...(latest.model ? { model: latest.model } : {}),
           conversationId: conversationId.current,
+          ...(trigger === "regenerate-message" ? { retry: true } : {}),
           ...(previousTier(messages) ? { previousModel: previousTier(messages) } : {}),
           messages: prepareChatHistory(messages),
         } };
@@ -626,6 +627,11 @@ function ChatSession({ dive, state, ready, frameStatus, onClose }) {
     }
   }, [messages, diveKey]);
   const busy = status === "submitted" || status === "streaming";
+  // Closing the panel or switching Dives ends an answer the way Stop does. Otherwise the request
+  // is cut off unannounced, and the answer kept here would differ from the one the server saves.
+  const ending = useRef({ busy, stop });
+  ending.current = { busy, stop };
+  useEffect(() => () => { if (ending.current.busy) ending.current.stop(); }, []);
   const [showHistory, setShowHistory] = useState(false);
   const canAsk = ready && Boolean(diveKey);
   const waiting = frameStatus === 'error' ? COPY.unavailable : frameStatus === 'configuration' ? COPY.connect : COPY.waiting;

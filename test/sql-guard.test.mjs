@@ -86,3 +86,12 @@ test('spatial file readers and settings or secrets functions are refused', () =>
   }
   assert.doesNotThrow(() => guardQuery('SELECT ST_Area(geom) AS area FROM parcels'));
 });
+
+test('unquoted file names in a table position are rejected, and dotted table names still pass', () => {
+  for (const sql of ['SELECT * FROM x.csv', 'SELECT * FROM t, data . parquet', 'DESCRIBE x.parquet', 'SUMMARIZE x.json', 'SHOW x.jsonl', 'SELECT * FROM a JOIN b.ndjson USING (id)']) {
+    assert.throws(() => guardQuery(sql), /File and URL readers/, sql);
+  }
+  for (const sql of ['SELECT * FROM main.sales', 'SELECT a.csv FROM t a', 'SHOW TABLES', 'SELECT * FROM db.main.orders o JOIN db.main.items i ON o.id = i.id']) {
+    assert.doesNotThrow(() => guardQuery(sql), sql);
+  }
+});

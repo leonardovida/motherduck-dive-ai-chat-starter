@@ -2,6 +2,10 @@
 
 Every release of this template is listed here, newest first. The full notes for each version are in [`release-notes/`](release-notes/) and on the [GitHub Releases page](https://github.com/leonardovida/motherduck-dive-ai-chat-starter/releases). Version numbers follow the policy in [docs/releasing.md](docs/releasing.md#version-numbers).
 
+## v0.5.1 - 2026-11-04
+
+This release fixes access control for group managers, password resets and sign-in limits, records answer outcomes and token usage accurately, and fixes several chat, provider and interface problems. Deployments that allow `^0.5.0` receive it, and no database migration is needed. See the [release notes](release-notes/v0.5.1.md).
+
 ## v0.5.0 - 2026-11-04
 
 This release lets chat run on OpenAI, Anthropic, OpenRouter, Azure, Bedrock, Vertex AI or a self-hosted model, chosen in a new **Models** tab, adds past conversations, rating reasons, topics, a weekly digest and group allowances, and adds browser tests. Deployments pinned to `v0.4.x` do not receive it, `npm run db:migrate` is required, and renamed settings and a new cron path must be applied. See the [release notes](release-notes/v0.5.0.md).

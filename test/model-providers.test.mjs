@@ -163,3 +163,27 @@ test('setup asks for the default provider\'s variable names', async () => {
   assert.deepEqual(setupRequirements('bedrock', { AWS_ACCESS_KEY_ID: 'a' }).map(item => item.name), ['AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_REGION']);
   assert.deepEqual(setupRequirements('openai-compatible').filter(item => item.required).map(item => item.name), ['OPENAI_COMPATIBLE_BASE_URL', 'OPENAI_COMPATIBLE_MODEL']);
 });
+
+test('a Vertex service account wins over a leftover GOOGLE_VERTEX_API_KEY in the process environment', () => {
+  const before = process.env.GOOGLE_VERTEX_API_KEY;
+  process.env.GOOGLE_VERTEX_API_KEY = 'leftover-key';
+  try {
+    const env = { GOOGLE_VERTEX_PROJECT: 'p', GOOGLE_VERTEX_LOCATION: 'us-central1', GOOGLE_CLIENT_EMAIL: 'chat@p.iam.gserviceaccount.com', GOOGLE_PRIVATE_KEY: 'k', GOOGLE_VERTEX_API_KEY: 'leftover-key' };
+    const model = languageModel({ provider: 'vertex', id: 'gemini-4-argon', options: { project: 'p', location: 'us-central1' } }, env);
+    assert.match(model.config.baseURL, /^https:\/\/us-central1-aiplatform\.googleapis\.com\/.*\/projects\/p\//, 'not express mode');
+  } finally {
+    if (before === undefined) delete process.env.GOOGLE_VERTEX_API_KEY; else process.env.GOOGLE_VERTEX_API_KEY = before;
+  }
+});
+
+test('a settings read that finishes after a save does not put the old settings back', async () => {
+  const env = { MOTHERDUCK_APP_TOKEN: 'fixture' };
+  let release;
+  const slow = { get: () => new Promise(resolve => { release = () => resolve({ settings: { tiers: {}, old: true } }); }) };
+  const reading = refreshModelSettings({ env, store: slow, force: true });
+  setCachedModelSettings({ tiers: {}, saved: true });
+  release();
+  await reading;
+  assert.equal(cachedModelSettings().saved, true);
+  setCachedModelSettings(null);
+});

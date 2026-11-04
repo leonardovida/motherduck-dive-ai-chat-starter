@@ -1,4 +1,5 @@
-import { NO_STORE, failure, requireAdmin } from '../../../../../lib/admin-api.mjs';
+import { NO_STORE, failure, requireAdmin, badBody } from '../../../../../lib/admin-api.mjs';
+import { readJsonBody } from '../../../../../lib/request-body.mjs';
 import { createGroupStore } from '../../../../../lib/groups.mjs';
 import { cleanGroup, groupSchema } from '../../../../../lib/group-input.mjs';
 import { scheduleSync } from '../../../../../lib/access-sync.mjs';
@@ -11,7 +12,7 @@ export async function PATCH(request, { params }) {
   const { response, viewer } = await requireAdmin(request, { write: true });
   if (response) return response;
   let body;
-  try { body = cleanGroup(groupSchema.parse(await request.json())); } catch { return failure('invalid_group', 400); }
+  try { body = cleanGroup(groupSchema.parse(await readJsonBody(request, 32768))); } catch (error) { return badBody(error, 'invalid_group'); }
   const id = (await params).id.slice(0, 64);
   const groups = createGroupStore();
   try {

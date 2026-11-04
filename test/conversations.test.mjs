@@ -240,3 +240,27 @@ test('a question records group ids beside group names', async () => {
   const insert = calls.find(call => call.text.startsWith('INSERT INTO chat_message'));
   assert.deepEqual(insert.values.slice(5, 7), ['["Acme"]', '["g1"]']);
 });
+
+test('Retry reuses the last question and replaces its failed answer, only in the viewer\'s own conversation', async () => {
+  const database = ({ owner = 'user-1', last = { id: 'q-1', content: 'Why?' }, answered = false } = {}) => {
+    const calls = [];
+    const query = async (text, values = []) => {
+      calls.push({ text, values });
+      if (text.startsWith('SELECT user_id, dive_key, session_id FROM chat_conversation')) return [{ user_id: owner, dive_key: 'overview', session_id: null }];
+      if (text.startsWith('SELECT id, content FROM chat_message')) return last ? [last] : [];
+      if (text.startsWith('SELECT 1 AS found FROM chat_message WHERE reply_to')) return answered ? [{ found: 1 }] : [];
+      return [];
+    };
+    return { calls, store: createConversationStore(query) };
+  };
+  const turn = { conversationId: 'conv-12345678', viewer, diveKey: 'overview', question: 'Why?' };
+  const retried = database();
+  assert.equal(await retried.store.retryTurn(turn), 'q-1');
+  assert.deepEqual(retried.calls.find(call => call.text.startsWith('DELETE FROM chat_message WHERE reply_to')).values, ['q-1']);
+  assert.ok(!retried.calls.some(call => call.text.startsWith('INSERT')), 'the question is not saved twice');
+  for (const [why, options] of [['someone else\'s', { owner: 'user-2' }], ['a different question', { last: { id: 'q-1', content: 'What?' } }], ['already answered', { answered: true }], ['nothing asked yet', { last: null }]]) {
+    const other = database(options);
+    assert.equal(await other.store.retryTurn(turn), null, why);
+    assert.ok(!other.calls.some(call => call.text.startsWith('DELETE')), why);
+  }
+});

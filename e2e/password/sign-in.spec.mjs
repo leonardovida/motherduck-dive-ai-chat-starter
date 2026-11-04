@@ -30,3 +30,14 @@ test('the password can be revealed while typing', async ({ page }) => {
   await page.getByRole('button', { name: 'Show password' }).click();
   await expect(field).toHaveAttribute('type', 'text');
 });
+
+test('a sign-out that fails says so and keeps the session', async ({ page }) => {
+  await signIn(page);
+  await expect(dive(page).getByText(/Session e2e-session-/)).toBeVisible();
+  await page.route('**/api/auth', route => (route.request().method() === 'DELETE' ? route.fulfill({ status: 503, json: { error: 'unavailable' } }) : route.fallback()));
+  await page.getByRole('button', { name: 'Sign out' }).click();
+  await expect(page.getByRole('alert').filter({ hasText: 'Signing out did not work' })).toBeVisible();
+  await page.unroute('**/api/auth');
+  await page.getByRole('button', { name: 'Sign out' }).click();
+  await expect(page.getByLabel('Password', { exact: true })).toBeVisible();
+});
