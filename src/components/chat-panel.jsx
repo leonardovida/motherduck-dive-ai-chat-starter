@@ -56,19 +56,10 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./chat-panel.css";
 import { prepareChatHistory } from "@/lib/chat-history.mjs";
+import { RATINGS, SESSION_CHAT_HISTORY, SESSION_CONVERSATIONS, loadModelCatalog } from "@/lib/chat-session.mjs";
 
-const SESSION_CHAT_HISTORY = new Map();
-// One saved-conversation id per Dive for this browser session; Clear starts a new one.
-const SESSION_CONVERSATIONS = new Map();
 const MAX_SESSION_MESSAGES = 24;
 const MODEL_STORAGE_KEY = "dive_app_chat_model";
-let catalogRequest = null;
-
-export function clearChatHistory() {
-  SESSION_CHAT_HISTORY.clear();
-  SESSION_CONVERSATIONS.clear();
-  catalogRequest = null;
-}
 
 function readChatHistory(key) {
   const history = SESSION_CHAT_HISTORY.get(key);
@@ -78,19 +69,6 @@ function readChatHistory(key) {
 function writeChatHistory(key, messages) {
   if (!key) return;
   SESSION_CHAT_HISTORY.set(key, messages.slice(-MAX_SESSION_MESSAGES));
-}
-
-// The server decides which tiers exist; the browser only remembers a choice.
-function loadModelCatalog() {
-  catalogRequest ??= fetch("/api/chat", { credentials: "same-origin", cache: "no-store" })
-    .then((response) => (response.ok ? response.json() : null))
-    .then((catalog) => (Array.isArray(catalog?.models) && catalog.models.length ? catalog : null))
-    .catch(() => null)
-    .then((catalog) => {
-      if (!catalog) catalogRequest = null;
-      return catalog;
-    });
-  return catalogRequest;
 }
 
 function readStoredModel() {
@@ -351,7 +329,6 @@ function CopyAnswer({ text }) {
 }
 
 // Ratings survive switching Dives and back, like the conversation itself.
-const RATINGS = new Map();
 
 // Thumbs up or down on a saved answer. Pressing the active one again clears it.
 function RateAnswer({ conversationId, answerId, onRated }) {

@@ -63,14 +63,9 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { DEFAULT_APP_TITLE } from "./lib/app-meta.mjs";
+import { clearChatSession } from "./lib/chat-session.mjs";
 
 const ChatPanel = dynamic(() => import("@/components/chat-panel"), { ssr: false });
-
-function clearChatSessionHistory() {
-  return import("@/components/chat-panel")
-    .then(({ clearChatHistory }) => clearChatHistory())
-    .catch(() => {});
-}
 
 const EMBED_ORIGIN = "https://embed-motherduck.com";
 const EMBED_BASE = `${EMBED_ORIGIN}/sandbox/`;
@@ -712,10 +707,10 @@ function DiveFrame({ theme, dive, onStatusChange, onStateChange }) {
         onStateChange?.(stateRef.current || {});
         return;
       }
-      if (["navigation-request", "dive-navigation-request", "open-link"].includes(message.type)) {
+      if (message.type === "navigation-request") {
         let requested;
         try {
-          requested = new URL(typeof message.url === "string" ? message.url : message.href);
+          requested = new URL(message.url);
         } catch {
           return;
         }
@@ -723,7 +718,6 @@ function DiveFrame({ theme, dive, onStatusChange, onStateChange }) {
         setLinkRequest({ href: requested.toString(), hostname: requested.hostname });
         return;
       }
-      if (["dive-session-expired", "session-expired", "auth-expired"].includes(message.type)) openDive();
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
@@ -917,9 +911,7 @@ function AuthenticatedApp({ appTitle, theme, setTheme, dives, selectedKey, setSe
   React.useEffect(() => {
     if (dive?.key && dive.key !== selectedKey) setSelectedKey(dive.key);
   }, [selectedKey, setSelectedKey, dive]);
-  React.useEffect(() => () => {
-    void clearChatSessionHistory();
-  }, []);
+  React.useEffect(() => clearChatSession, []);
   return (
     <SidebarProvider defaultOpen>
       <MainContent appTitle={appTitle} theme={theme} setTheme={setTheme} dive={dive} dives={dives} onSelectDive={setSelectedKey} onSignOut={onSignOut} user={user} demo={demo} />
@@ -974,12 +966,8 @@ export default function App() {
     }
   }, [loadDives]);
 
-  React.useEffect(() => {
-    refreshAuth();
-    // Sessions last 8 hours; check again shortly before that.
-    const timer = window.setTimeout(refreshAuth, 7.5 * 60 * 60 * 1000);
-    return () => window.clearTimeout(timer);
-  }, [refreshAuth]);
+  // An expired session shows up when the Dive renews its embed session, which reloads the page.
+  React.useEffect(() => { refreshAuth(); }, [refreshAuth]);
 
   const submitLogin = async ({ username, password }) => {
     if (auth.mode === "accounts") {
@@ -1016,10 +1004,11 @@ export default function App() {
         const { authClient } = await import("./lib/auth-client.js");
         const { error } = await authClient.signOut();
         if (error) throw new Error("logout-failed");
+      } else {
+        const { response } = await jsonRequest("/api/auth", { method: "DELETE" });
+        if (!response.ok) throw new Error("logout-failed");
       }
-      const { response } = await jsonRequest("/api/auth", { method: "DELETE" });
-      if (!response.ok) throw new Error("logout-failed");
-      await clearChatSessionHistory();
+      clearChatSession();
       setDives([]);
       setAuth((current) => ({ ...current, state: "unauthenticated" }));
     } catch {
