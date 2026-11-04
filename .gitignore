@@ -8,5 +8,15 @@ dist
 test-results
 playwright-report
 
+# Deployment tooling (deploy/)
+cdk.out
+cdk.context.json
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+.button-state
+
 .DS_Store
 *.log

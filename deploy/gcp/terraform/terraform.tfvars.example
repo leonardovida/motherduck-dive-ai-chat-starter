@@ -1,0 +1,20 @@
+# Copy to terraform.tfvars and fill in. This file holds names and plain settings only.
+# Secret values live in Secret Manager: run ../scripts/create-secrets.sh first.
+project_id   = "your-project-id"
+region       = "us-central1"
+sign_in_mode = "accounts"
+
+# Pin a release instead of :latest to control upgrades.
+image = "ghcr.io/leonardovida/motherduck-dive-ai-chat-starter:latest"
+
+# The model provider key goes here by name, for example ANTHROPIC_API_KEY.
+secret_names = ["MOTHERDUCK_EMBED_TOKEN", "MOTHERDUCK_CHAT_TOKEN", "OPENAI_API_KEY"]
+
+settings = {
+  MOTHERDUCK_EMBED_USERNAME   = "your-read-only-service-account"
+  DIVE_OVERVIEW_ID            = "your-saved-dive-id"
+  DIVE_OVERVIEW_CHAT_DATABASE = "the-database-chat-may-query"
+}
+
+# Optional: your own domain. Required for password sign-in on Cloud Run.
+# domain = "dives.example.com"

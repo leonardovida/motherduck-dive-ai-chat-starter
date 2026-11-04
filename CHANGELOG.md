@@ -1,6 +1,10 @@
 # Changelog
 
-Every release of this template is listed here, newest first. The full notes for each version are in [`release-notes/`](release-notes/) and on the [GitHub Releases page](https://github.com/leonardovida/motherduck-dive-ai-chat-starter/releases). Version numbers follow the policy in [docs/releasing.md](docs/releasing.md#version-numbers).
+Every release of this starter is listed here, newest first. The full notes for each version are in [`release-notes/`](release-notes/) and on the [GitHub Releases page](https://github.com/leonardovida/motherduck-dive-ai-chat-starter/releases). Version numbers follow the policy in [docs/releasing.md](docs/releasing.md#version-numbers).
+
+## v0.6.0 - 2026-11-04
+
+This release adds a container image and one-click and repeatable deployments to AWS, Google Cloud and Azure, refreshes the README screenshots and fixes three interface problems. Deployments that allow `^0.5.0` do not receive it, and no database migration is needed. See the [release notes](release-notes/v0.6.0.md).
 
 ## v0.5.1 - 2026-11-04
 

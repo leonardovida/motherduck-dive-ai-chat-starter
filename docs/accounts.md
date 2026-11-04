@@ -28,7 +28,7 @@ Accounts, sessions and conversations are stored in a **MotherDuck database** tha
    npm run db:migrate
    ```
 
-   The migration is safe to run again. Run it after every upgrade of the template.
+   The migration is safe to run again. Run it after every upgrade to a new release.
 4. **Create the first administrator.** The command asks for the password without showing it. In automation, set `ADMIN_PASSWORD` from your secret manager instead.
 
    ```sh
@@ -293,5 +293,5 @@ To set one up:
 - Sign-in allows ten failed attempts per account every ten minutes on any host. Better Auth's limit per client address needs a trusted address: on Vercel it is automatic; on other hosts set `AUTH_TRUSTED_IP_HEADER`, or the per-address limit is off.
 - Rate limits and the chat request budget are kept in memory for each server instance. For heavy public use, put a shared limiter in front of the app or add a [Better Auth secondary storage](https://www.better-auth.com/docs/concepts/database#secondary-storage).
 - The app database sees one small write per sign-in and two per chat answer. That suits teams and customer pilots. For thousands of concurrent users, move accounts to a dedicated transactional database.
-- The access sync reconciles every person and group on each run, which suits hundreds of people. Organizations with many thousands would need a sync by group, which the template does not include yet.
+- The access sync reconciles every person and group on each run, which suits hundreds of people. Organizations with many thousands would need a sync by group, which the starter does not include yet.
 - Better Auth's built-in email flows (verification, password reset by email) are not wired up, because they need an email provider. Administrators and group managers send setup links instead.

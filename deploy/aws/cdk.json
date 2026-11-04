@@ -1,0 +1,15 @@
+{
+  "app": "node bin/app.ts",
+  "context": {
+    "stackName": "MotherDuckDiveChat",
+    "signIn": "password",
+    "secretNames": ["MOTHERDUCK_EMBED_TOKEN", "MOTHERDUCK_CHAT_TOKEN", "OPENAI_API_KEY"],
+    "environment": {},
+    "domainName": "",
+    "certificateArn": "",
+    "availabilityZones": [],
+    "desiredCount": 1,
+    "cpu": 512,
+    "memoryMiB": 1024
+  }
+}

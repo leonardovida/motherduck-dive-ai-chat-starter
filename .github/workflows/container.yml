@@ -1,0 +1,88 @@
+name: Container image
+
+# Pull requests build the image and check that it starts. A release tag such as v1.2.3 also
+# publishes it to GitHub Container Registry as ghcr.io/<owner>/<repo>:1.2.3 and :latest, which the
+# AWS, Google Cloud and Azure deployments pull (docs/deploy.md). No cloud credentials are used.
+on:
+  pull_request:
+  push:
+    tags: ['v*.*.*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: container-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          tags: dive-chat:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Smoke test
+        # Placeholder, non-secret values: enough for production mode to start and answer /api/auth.
+        run: |
+          docker run -d --name app -p 3000:3000 \
+            -e DEMO_PASSWORD=ci-smoke-test \
+            -e SESSION_SECRET=ci-smoke-test-session-secret-0000000000 \
+            -e AUTH_TRUSTED_IP_HEADER=x-client-ip \
+            dive-chat:ci
+          for _ in $(seq 1 60); do
+            status=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:3000/api/auth || true)
+            [ "$status" = 200 ] && break
+            sleep 1
+          done
+          docker logs app
+          [ "$status" = 200 ] || { echo "/api/auth returned $status"; exit 1; }
+          curl -fsS http://localhost:3000/api/auth
+          [ "$(docker exec app id -u)" != 0 ] || { echo "The container runs as root."; exit 1; }
+          docker exec app node deploy/cron.mjs /api/cron/daily && exit 1 || echo "cron.mjs refuses to run without APP_URL, as expected."
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ghcr.io/${{ github.repository }}
+          # 1.2.3 and, for releases without a suffix such as -rc.1, latest.
+          tags: type=semver,pattern={{version}}
+          flavor: latest=auto
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
