@@ -34,11 +34,15 @@ jobs:
           cache-dependency-path: deploy/aws/package-lock.json
       - run: npm ci --ignore-scripts --no-audit --no-fund
       - run: npm run typecheck
+      - run: npm test
       - run: npx cdk synth --quiet
         env:
           CDK_DISABLE_CLI_TELEMETRY: 'true'
       - name: The committed CloudFormation template matches the CDK app
         run: npm run check:template
+      # W3005 (a redundant DependsOn that CDK writes) is a warning, so only errors fail the job.
+      - name: Lint the CloudFormation template
+        run: pipx run --spec cfn-lint==1.59.0 cfn-lint --non-zero-exit-code error -- cloudformation.template.json
 
   azure:
     if: github.event_name != 'push' || github.ref_name == github.event.repository.default_branch

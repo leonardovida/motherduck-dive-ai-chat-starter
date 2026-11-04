@@ -60,7 +60,9 @@ The image runs `node server.js`, Next.js's production server, as a non-root user
 
 The stack runs one Fargate task behind an internal Application Load Balancer, with a CloudFront distribution in front of it. CloudFront provides the `https://<id>.cloudfront.net` address, so you do not need a domain. AWS App Runner is [closed to new customers](https://docs.aws.amazon.com/apprunner/latest/dg/apprunner-availability-change.html) since April 30, 2026, which is why the stack uses Fargate.
 
-**Prerequisites:** an AWS account, permission to create IAM roles, and a Region that supports [CloudFront VPC origins](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-vpc-origins.html#vpc-origins-supported-regions), such as `us-east-1`, `us-west-2` or `eu-west-1`. For the CDK path, also Node.js 24 or later and the AWS CLI signed in to the account.
+**Prerequisites:** an AWS account, permission to create IAM roles, and a Region that supports [CloudFront VPC origins](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-vpc-origins.html#vpc-origins-supported-regions), such as `us-east-1`, `us-west-2` or `eu-west-1`. For the CDK path, also Node.js 24.2 or later and the AWS CLI signed in to the account.
+
+The stack uses two Availability Zones, by default the first two in the Region. A few zones lack VPC origins: `use1-az3` in `us-east-1`, `usw1-az2` in `us-west-1`, `apne1-az3` in `ap-northeast-1` and `cac1-az3` in `ca-central-1`. These are zone IDs, and each account maps zone names such as `us-east-1a` to IDs differently. In those Regions, list your mapping in AWS CloudShell or with the AWS CLI, `aws ec2 describe-availability-zones --query "AvailabilityZones[].[ZoneName,ZoneId]" --output text`, and if the first two names map to an excluded ID, choose two other zones: the `AvailabilityZone1` and `AvailabilityZone2` parameters in the console, or the `availabilityZones` [CDK option](#cdk-options).
 
 Deploying on AWS takes three steps: deploy the stack, put your values into the secrets it created, and restart the app.
 
@@ -68,7 +70,7 @@ Deploying on AWS takes three steps: deploy the stack, put your values into the s
 
 1. Download [`deploy/aws/cloudformation.template.json`](../deploy/aws/cloudformation.template.json).
 2. Open [CloudFormation > Create stack](https://console.aws.amazon.com/cloudformation/home#/stacks/create), choose **Upload a template file** and select it.
-3. Name the stack, for example `MotherDuckDiveChat`, and fill in `MotherDuckEmbedUsername`, `DiveOverviewId` and `DiveOverviewChatDatabase`. Set `ImageUri` to a version tag if you want one.
+3. Name the stack, for example `MotherDuckDiveChat`, and fill in `MotherDuckEmbedUsername`, `DiveOverviewId` and `DiveOverviewChatDatabase`. Set `ImageUri` to a version tag if you want one. Leave `AvailabilityZone1` and `AvailabilityZone2` empty unless the [zone note above](#aws) applies to you.
 4. Acknowledge that the stack creates IAM roles and choose **Submit**. It takes 10 to 15 minutes, mostly for CloudFront.
 5. Open the **Outputs** tab. `AppUrl` is the app's address. Continue with [step 2](#2-fill-in-the-secrets).
 
@@ -105,7 +107,7 @@ Set these under `context` in [`deploy/aws/cdk.json`](../deploy/aws/cdk.json), or
 | `secretNames` | embed token, chat token, `OPENAI_API_KEY` | The other settings read from Secrets Manager. Replace `OPENAI_API_KEY` with your provider's key, and add SSO client secrets or `MOTHERDUCK_ADMIN_TOKEN` here. |
 | `environment` | `{}` | Plain settings, for example `{"CHAT_PROVIDER": "anthropic", "CHAT_RETENTION_DAYS": "90"}`. |
 | `domainName`, `certificateArn` | none | Your own domain, with an ACM certificate for it in `us-east-1`. Point a CNAME at the CloudFront address afterwards. |
-| `availabilityZones` | two zones | Choose zones, for example `us-east-1a,us-east-1b`, if a zone in your Region lacks CloudFront VPC origins. |
+| `availabilityZones` | none | Two or more zones, for example `us-east-1b,us-east-1c`, if one of the Region's first two zones lacks CloudFront VPC origins (see [AWS](#aws)). Without it, the stack uses the `AvailabilityZone1` and `AvailabilityZone2` parameters, or the first two zones when those are empty. |
 | `desiredCount`, `cpu`, `memoryMiB` | `1`, `512`, `1024` | The size of the app. Sign-in limits are kept per task. |
 
 After changing `cdk.json`, run `npm run template` to refresh `cloudformation.template.json`. CI checks that the two agree.
@@ -140,7 +142,7 @@ The stack sets `APP_URL` to the CloudFront address, or to your domain, before th
 
 ### Scheduled calls on AWS
 
-Two EventBridge Scheduler schedules run the `vercel.json` crons: the daily upkeep at 04:17 UTC and the weekly digest on Mondays at 08:00 UTC. Each starts a small Fargate task from the same image, which calls the route with `CRON_SECRET` and stops. To run one now, start a task from the stack's `DailyTask` definition in the ECS console. The output is in the stack's CloudWatch log group.
+Two EventBridge Scheduler schedules run the `vercel.json` crons: the daily upkeep at 04:17 UTC and the weekly digest on Mondays at 08:00 UTC. Each starts a small Fargate task from the same image, which calls the route with `CRON_SECRET` and stops. To run one now, open the stack's cluster in the ECS console, choose **Tasks** and then **Run task**, choose the **Launch type** `FARGATE`, and pick the task definition whose name contains `DailyTask`. Under **Networking**, choose the stack's VPC, its two public subnets (their names contain `tasks`), the security group described as "Scheduled calls to the app", and turn on **Public IP**: the task pulls the image and calls the app over the internet. The output is in the stack's CloudWatch log group.
 
 ### Upgrade on AWS
 
@@ -302,7 +304,7 @@ Delete the resource group: `az group delete --name <group>`. Key Vault keeps a d
 | --- | --- |
 | Password sign-in says it **isn't configured** | `AUTH_TRUSTED_IP_HEADER` is not set, or no trusted proxy sets it. Use accounts, or see [Choose how people sign in](#choose-how-people-sign-in). |
 | The AWS app shows connection or sign-in errors after the first deploy | The secrets still hold their random placeholders, or the service has not restarted since you changed them. See [Fill in the secrets](#2-fill-in-the-secrets). |
-| The AWS stack fails at the VPC origin | A zone in your Region lacks CloudFront VPC origins. Set `availabilityZones`. |
+| The AWS stack fails at the VPC origin | One of the stack's zones lacks CloudFront VPC origins. Delete the failed stack, then deploy again with two other zones: `AvailabilityZone1` and `AvailabilityZone2` in the console, or `availabilityZones` with CDK. See [AWS](#aws). |
 | Terraform says a secret was not found | Run `create-secrets.sh` with the same `--prefix` and `--secrets`. |
 | The Azure app shows a secret error on first deploy | The new identity's Key Vault access can take a few minutes to apply. Run the deployment again. |
 | SSO says it **did not complete** | Register `<APP_URL>/api/account/callback/<provider id>`, using the `APP_URL` address. |
