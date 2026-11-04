@@ -17,13 +17,16 @@ const dives = [
 const acme = { id: 'g-acme', name: 'Acme', dives: ['explorer'], chat: true, serviceAccount: 'acme_viewer', resources: { explorer: [{ alias: 'demo', url: SHARE_A }] } };
 const finance = { id: 'g-fin', name: 'Finance', dives: ['overview'], chat: false, serviceAccount: null, resources: {} };
 
-test('an empty Dive list means none, so unticking every Dive no longer grants all of them', () => {
-  assert.equal(parseDiveAccess(null), '*');
-  assert.equal(parseDiveAccess(undefined), '*');
+test('access fails closed: an empty or missing Dive list means none, and chat needs an explicit yes', () => {
+  assert.deepEqual(parseDiveAccess(null), []);
+  assert.deepEqual(parseDiveAccess(undefined), []);
   assert.equal(parseDiveAccess('*'), '*');
   assert.deepEqual(parseDiveAccess(''), []);
   assert.deepEqual(parseDiveAccess('overview, explorer,overview,BAD KEY'), ['overview', 'explorer']);
   assert.deepEqual(viewerFromUser({ id: 'u', diveAccess: '' }).dives, []);
+  assert.deepEqual([viewerFromUser({ id: 'u' }).dives, viewerFromUser({ id: 'u' }).chat], [[], false]);
+  assert.equal(viewerFromUser({ id: 'u', chatAccess: null }).chat, false);
+  assert.equal(viewerFromUser({ id: 'u', chatAccess: true }).chat, true);
 });
 
 test('group access adds to personal access, and one data group sets the MotherDuck identity', () => {
@@ -76,10 +79,10 @@ test('a failed group lookup leaves the person with no Dives rather than the wron
   const auth = { api: { getSession: async () => ({ user: { id: 'u', role: 'user', diveAccess: '*' }, session: { id: 's' } }) } };
   const env = { MOTHERDUCK_APP_TOKEN: 't' };
   const broken = { forUser: async () => { throw Object.assign(new Error('connection reset'), { code: 'ECONNRESET' }); } };
-  const locked = await getViewer({ cookie: 'ok' }, env, auth, { groups: broken });
+  const locked = await getViewer(new Headers({ cookie: 'ok' }), env, auth, { groups: broken });
   assert.deepEqual(locked.dives, []);
   assert.equal(locked.chat, false);
-  const member = await getViewer({ cookie: 'ok' }, env, auth, { groups: { forUser: async () => [acme] } });
+  const member = await getViewer(new Headers({ cookie: 'ok' }), env, auth, { groups: { forUser: async () => [acme] } });
   assert.equal(member.dataGroup.serviceAccount, 'acme_viewer');
 });
 

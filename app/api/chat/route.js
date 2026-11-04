@@ -2,6 +2,7 @@ import { convertToModelMessages, createUIMessageStream, createUIMessageStreamRes
 import { z } from 'zod';
 import { sameOrigin, sanitizeState, sessionCookie } from '../../../lib/security.mjs';
 import { PayloadTooLarge, readRequestText } from '../../../lib/request-body.mjs';
+import { NO_STORE, failure } from '../../../lib/admin-api.mjs';
 import { getDive } from '../../../lib/dives.mjs';
 import { createDataTools, createChatReaderSession } from '../../../lib/chat-data.mjs';
 import { MAX_ROWS } from '../../../lib/sql-guard.mjs';
@@ -21,7 +22,6 @@ export const runtime = 'nodejs';
 // Deeper tiers explore over several tool steps; 300s is the Fluid compute default.
 export const maxDuration = 300;
 const usage = new Map();
-const NO_STORE = { 'Cache-Control': 'private, no-store' };
 const UNAVAILABLE = 'Chat is temporarily unavailable. Try again.';
 const requestSchema = z.object({
   dive: z.string().max(40),
@@ -32,7 +32,6 @@ const requestSchema = z.object({
   messages: z.array(z.object({ id: z.string().max(200), role: z.enum(['user', 'assistant']), parts: z.array(z.record(z.string(), z.unknown())).max(100) }).loose()).min(1).max(24),
 }).loose();
 const followUpSchema = z.object({ questions: z.array(z.string().min(3).max(90)).max(3) });
-const failure = (error, status) => Response.json({ error }, { status, headers: NO_STORE });
 const textOf = message => message?.parts.map(p => p.text).join('') ?? '';
 
 // The picker reads only which tiers are enabled; ids, providers and limits stay on the server.
@@ -56,13 +55,12 @@ async function followUps({ title, question, answer, abortSignal }) {
 }
 
 export async function POST(request) {
-  const headers = Object.fromEntries(request.headers.entries());
   const viewer = await getViewer(request.headers, process.env, undefined, { fresh: true });
   if (!viewer) return failure('authentication_required', 401);
-  if (!sameOrigin({ headers })) return failure('origin_not_allowed', 403);
+  if (!sameOrigin(request)) return failure('origin_not_allowed', 403);
   if (!viewer.chat) return failure('chat_not_allowed', 403);
   // Public demo visitors share one account, so they are limited per session instead.
-  const limitKey = viewer.mode !== 'accounts' ? sessionCookie({ headers }) : publicDemo() ? viewer.sessionId ?? viewer.id : viewer.id;
+  const limitKey = viewer.mode !== 'accounts' ? sessionCookie(request) : publicDemo() ? viewer.sessionId ?? viewer.id : viewer.id;
   const now = Date.now(), window = usage.get(limitKey);
   if (window && window.until > now && window.count >= 20) return failure('chat_rate_limited', 429);
   usage.set(limitKey, { until: window?.until > now ? window.until : now + 60000, count: window?.until > now ? window.count + 1 : 1 });

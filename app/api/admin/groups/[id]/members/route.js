@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { NO_STORE, failure, requireAdmin, requirePeopleManager } from '../../../../../../lib/admin-api.mjs';
+import { NO_STORE, failure, requireAdmin } from '../../../../../../lib/admin-api.mjs';
 import { createGroupStore } from '../../../../../../lib/groups.mjs';
 import { createPeopleService } from '../../../../../../lib/people.mjs';
 import { scheduleSync } from '../../../../../../lib/access-sync.mjs';
@@ -36,7 +36,7 @@ export async function PUT(request, { params }) {
 
 // Removes a person from a group. Managers may remove members of the groups they manage.
 export async function DELETE(request, { params }) {
-  const { response, scope, viewer } = await requirePeopleManager(request, { write: true });
+  const { response, scope, viewer } = await requireAdmin(request, { write: true, managers: true });
   if (response) return response;
   const groupId = (await params).id.slice(0, 64);
   const userId = new URL(request.url).searchParams.get('user')?.slice(0, 64) ?? '';

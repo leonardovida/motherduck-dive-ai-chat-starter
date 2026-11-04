@@ -1,4 +1,4 @@
-import { NO_STORE, failure, requirePeopleManager } from '../../../../../../lib/admin-api.mjs';
+import { NO_STORE, failure, requireAdmin } from '../../../../../../lib/admin-api.mjs';
 import { createPeopleService } from '../../../../../../lib/people.mjs';
 import { audit } from '../../../../../../lib/audit.mjs';
 
@@ -7,7 +7,7 @@ export const dynamic = 'force-dynamic';
 
 // A fresh one-time link for the person to choose a password. Earlier unused links stop working.
 export async function POST(request, { params }) {
-  const { response, scope, viewer } = await requirePeopleManager(request, { write: true });
+  const { response, scope, viewer } = await requireAdmin(request, { write: true, managers: true });
   if (response) return response;
   const id = (await params).id.slice(0, 64);
   const people = createPeopleService();

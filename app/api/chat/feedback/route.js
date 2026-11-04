@@ -4,10 +4,9 @@ import { PayloadTooLarge, readRequestText } from '../../../../lib/request-body.m
 import { getViewer } from '../../../../lib/viewer.mjs';
 import { FEEDBACK_REASONS, conversationOwner, createConversationStore, recordingEnabled } from '../../../../lib/conversations.mjs';
 import { publicDemo } from '../../../../lib/public-demo.mjs';
+import { NO_STORE, failure } from '../../../../lib/admin-api.mjs';
 
 export const runtime = 'nodejs';
-const NO_STORE = { 'Cache-Control': 'private, no-store' };
-const failure = (error, status) => Response.json({ error }, { status, headers: NO_STORE });
 const feedbackSchema = z.object({
   conversationId: z.string().max(64), answerId: z.string().max(64), value: z.union([z.literal(1), z.literal(-1), z.literal(0)]),
   reason: z.enum(FEEDBACK_REASONS).nullable().optional(), note: z.string().max(500).nullable().optional(),
@@ -18,7 +17,7 @@ export async function POST(request) {
   if (!recordingEnabled()) return failure('feedback_not_available', 404);
   const viewer = await getViewer(request.headers, process.env, undefined, { fresh: true });
   if (!viewer) return failure('authentication_required', 401);
-  if (!sameOrigin({ headers: Object.fromEntries(request.headers.entries()) })) return failure('origin_not_allowed', 403);
+  if (!sameOrigin(request)) return failure('origin_not_allowed', 403);
   let body;
   try { body = feedbackSchema.parse(JSON.parse(await readRequestText(request, 2000))); }
   catch (error) { return failure(error instanceof PayloadTooLarge ? 'request_too_large' : 'invalid_feedback', error instanceof PayloadTooLarge ? 413 : 400); }

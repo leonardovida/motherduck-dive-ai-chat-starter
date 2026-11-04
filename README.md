@@ -243,7 +243,7 @@ Where things live:
 - `src/admin/AdminApp.jsx` and `app/api/admin/`: the admin portal.
 - `lib/auth.mjs`, `lib/viewer.mjs`: accounts, SSO and who may open what.
 - `lib/chat-models.mjs`, `lib/model-router.mjs`: providers, tiers and Auto routing.
-- `api/` and `lib/`: sign-in, embed sessions, the SQL guard, request limits and saved conversations.
+- `app/api/` and `lib/`: sign-in, embed sessions, the SQL guard, request limits and saved conversations.
 - `test/`: regression tests that need no credentials.
 
 More detail: [configuration](docs/configuration.md), [accounts and SSO](docs/accounts.md), [models and routing](docs/model-routing.md), [architecture](docs/architecture.md), [verification record](docs/verification.md) and [agent setup](docs/agent-setup.md). CI runs the tests and a build without secrets. Repository secrets never configure the deployed app.

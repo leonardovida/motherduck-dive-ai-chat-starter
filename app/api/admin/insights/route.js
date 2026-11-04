@@ -1,4 +1,4 @@
-import { NO_STORE, failure, requirePeopleManager } from '../../../../lib/admin-api.mjs';
+import { NO_STORE, failure, requireAdmin } from '../../../../lib/admin-api.mjs';
 import { createInsights } from '../../../../lib/insights.mjs';
 import { audit } from '../../../../lib/audit.mjs';
 import { publicDemo } from '../../../../lib/public-demo.mjs';
@@ -14,7 +14,7 @@ export const dynamic = 'force-dynamic';
 // questions themselves for a CSV download. Group managers see only questions asked as a member
 // of the groups they manage, and never the conversations behind them.
 export async function GET(request) {
-  const { response, viewer, scope } = await requirePeopleManager(request);
+  const { response, viewer, scope } = await requireAdmin(request, { managers: true });
   if (response) return response;
   const params = new URL(request.url).searchParams;
   const managed = scope.all ? null : (viewer.groups ?? []).filter(group => scope.groups.includes(group.id));

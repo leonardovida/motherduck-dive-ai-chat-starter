@@ -16,7 +16,7 @@ The read-only MotherDuck identity and its data grants are the authoritative acce
 
 Without accounts mode, authentication is one shared demo password with signed eight-hour cookies, and every Dive is available to every signed-in viewer. Production refuses the development fallback. In accounts mode each person has their own Dives and chat access, and a group with its own MotherDuck service account derives its members' Dive sessions, databases and chat token from that account on the server, so MotherDuck keeps one customer's data from another ([Serve your customers](accounts.md#serve-your-customers)). The app never puts a customer's data identity in the browser.
 
-The login limiter counts failed passwords, retains at most 1,000 active client buckets, and rejects new buckets when full until one expires. Forwarded headers are ignored unless the app is on Vercel (`VERCEL=1`, which selects its platform-overwritten `x-forwarded-for`) or `AUTH_TRUSTED_IP_HEADER` names a header a trusted proxy overwrites with one client IP on every request. Next.js route handlers expose no socket. Local development can use one shared failure bucket; successful local sign-ins do not reset its count. Production refuses sign-in when no trusted source or client identity is available. For a multi-user production app, use its authentication and shared rate-limit service.
+The login limiter counts failed passwords, retains at most 1,000 active client buckets, and rejects new buckets when full until one expires. Forwarded headers are ignored unless the app is on Vercel (`VERCEL=1`, which selects its platform-overwritten `x-forwarded-for`) or `AUTH_TRUSTED_IP_HEADER` names a header a trusted proxy overwrites with one client IP on every request. Route handlers see no client socket, so without a trusted header every caller shares one failure bucket. Local development can use that shared bucket; successful local sign-ins do not reset its count. Production refuses sign-in when no trusted source or client identity is available. For a multi-user production app, use its authentication and shared rate-limit service.
 
 ## UI and lifecycle
 
@@ -24,7 +24,7 @@ The dashboard retains `useDiveState` values when its embed session renews. Chang
 
 The chat panel loads lazily. Tool outputs remain available as SQL receipts in the UI; only bounded narrative history is sent back to the model. Suggested follow-up questions are optional because they require another model call. Closing a chat panel cancels the active answer and retains bounded in-memory history for the signed-in session.
 
-The framework-independent handlers in `api/` are adapted by `app/api/_legacy-adapter.mjs`. The adapter caps request bytes before parsing, so the unit tests can exercise the same handlers without booting Next.js.
+Every server route is a Next.js route handler under `app/api/` that takes a web `Request` and returns a private, no-store `Response`. Routes read bodies through `lib/request-body.mjs`, which caps the bytes before parsing, and use the checks in `lib/security.mjs` and `lib/admin-api.mjs` directly. The unit tests import the route modules and call them with `Request` objects, without booting Next.js.
 
 ## Accounts and saved conversations
 
