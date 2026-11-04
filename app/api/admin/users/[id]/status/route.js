@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { NO_STORE, failure, requirePeopleManager } from '../../../../../../lib/admin-api.mjs';
+import { NO_STORE, failure, requireAdmin } from '../../../../../../lib/admin-api.mjs';
 import { createPeopleService } from '../../../../../../lib/people.mjs';
 import { scheduleSync } from '../../../../../../lib/access-sync.mjs';
 import { audit } from '../../../../../../lib/audit.mjs';
@@ -10,7 +10,7 @@ export const dynamic = 'force-dynamic';
 // Disables or re-enables a person. Disabling ends their sessions, and the access sync then
 // removes the MotherDuck grants the app gave them.
 export async function POST(request, { params }) {
-  const { response, scope, viewer } = await requirePeopleManager(request, { write: true });
+  const { response, scope, viewer } = await requireAdmin(request, { write: true, managers: true });
   if (response) return response;
   let body;
   try { body = z.object({ banned: z.boolean() }).parse(await request.json()); } catch { return failure('invalid_status', 400); }

@@ -1,3 +1,4 @@
+import { NO_STORE, failure } from '../../../../../lib/admin-api.mjs';
 import { sameOrigin } from '../../../../../lib/security.mjs';
 import { getViewer, canSeeDive } from '../../../../../lib/viewer.mjs';
 import { conversationOwner, createConversationStore, recordingEnabled } from '../../../../../lib/conversations.mjs';
@@ -5,8 +6,6 @@ import { publicDemo } from '../../../../../lib/public-demo.mjs';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-const NO_STORE = { 'Cache-Control': 'private, no-store' };
-const failure = (error, status) => Response.json({ error }, { status, headers: NO_STORE });
 
 async function own(request, params) {
   if (!recordingEnabled()) return { response: failure('history_not_available', 404) };
@@ -41,7 +40,7 @@ export async function GET(request, { params }) {
 
 // People can delete their own conversations. A public demo keeps them for every visitor.
 export async function DELETE(request, { params }) {
-  if (!sameOrigin({ headers: Object.fromEntries(request.headers.entries()) })) return failure('origin_not_allowed', 403);
+  if (!sameOrigin(request)) return failure('origin_not_allowed', 403);
   if (publicDemo()) return failure('demo_read_only', 403);
   try {
     const { response, conversation } = await own(request, params);

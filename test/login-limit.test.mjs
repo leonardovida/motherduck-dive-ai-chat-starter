@@ -3,12 +3,14 @@ import assert from 'node:assert/strict';
 import { createFailureLimiter, loginClientKey } from '../lib/login-limit.mjs';
 
 test('forwarded addresses are ignored unless an explicitly trusted single-IP header is configured', () => {
-  const request = { headers: { 'x-forwarded-for': '198.51.100.1', 'x-real-ip': '198.51.100.2' }, socket: { remoteAddress: '192.0.2.1' } };
-  assert.equal(loginClientKey(request, {}), '192.0.2.1');
-  assert.equal(loginClientKey(request, { VERCEL: '1' }), '198.51.100.1');
-  assert.equal(loginClientKey({ headers: request.headers }, {}), 'shared');
-  assert.equal(loginClientKey(request, { AUTH_TRUSTED_IP_HEADER: 'x-real-ip' }), '198.51.100.2');
-  assert.equal(loginClientKey({ ...request, headers: { 'x-real-ip': '198.51.100.2, 1.2.3.4' } }, { AUTH_TRUSTED_IP_HEADER: 'x-real-ip' }), '192.0.2.1');
+  const headers = new Headers({ 'x-forwarded-for': '198.51.100.1', 'x-real-ip': '198.51.100.2' });
+  assert.equal(loginClientKey(headers, {}), 'shared');
+  assert.equal(loginClientKey(headers, { VERCEL: '1' }), '198.51.100.1');
+  assert.equal(loginClientKey(headers, { AUTH_TRUSTED_IP_HEADER: 'x-real-ip' }), '198.51.100.2');
+  assert.equal(loginClientKey(headers, { AUTH_TRUSTED_IP_HEADER: 'X-Real-IP' }), '198.51.100.2', 'header names are case-insensitive');
+  assert.equal(loginClientKey(new Headers({ 'x-real-ip': '198.51.100.2, 1.2.3.4' }), { AUTH_TRUSTED_IP_HEADER: 'x-real-ip' }), 'shared');
+  assert.equal(loginClientKey(new Headers(), { AUTH_TRUSTED_IP_HEADER: 'x-real-ip' }), 'shared');
+  assert.equal(loginClientKey(headers, { AUTH_TRUSTED_IP_HEADER: 'bad header!' }), 'shared');
 });
 
 test('successful local shared-mode sign-ins do not reset someone else\'s failures', () => {

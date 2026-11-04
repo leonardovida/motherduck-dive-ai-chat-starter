@@ -1,11 +1,10 @@
+import { NO_STORE, failure } from '../../../../lib/admin-api.mjs';
 import { getViewer, canSeeDive } from '../../../../lib/viewer.mjs';
 import { conversationOwner, createConversationStore, recordingEnabled } from '../../../../lib/conversations.mjs';
 import { publicDemo } from '../../../../lib/public-demo.mjs';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-const NO_STORE = { 'Cache-Control': 'private, no-store' };
-const failure = (error, status) => Response.json({ error }, { status, headers: NO_STORE });
 
 // A person's own saved conversations for one Dive, newest first, so they can pick one up again.
 export async function GET(request) {

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { budgets } from '../../../../lib/budgets.mjs';
-import { NO_STORE, failure, requirePeopleManager } from '../../../../lib/admin-api.mjs';
+import { NO_STORE, failure, requireAdmin } from '../../../../lib/admin-api.mjs';
 import { createPeopleService, MAX_IMPORT } from '../../../../lib/people.mjs';
 import { listDives, publicDive } from '../../../../lib/dives.mjs';
 import { adminConfigured } from '../../../../lib/motherduck-admin.mjs';
@@ -22,7 +22,7 @@ const createSchema = z.object({
 
 // Everyone the caller may manage, with group memberships. Managers see their groups only.
 export async function GET(request) {
-  const { response, scope, viewer } = await requirePeopleManager(request);
+  const { response, scope, viewer } = await requireAdmin(request, { managers: true });
   if (response) return response;
   try {
     const result = await createPeopleService().list(scope);
@@ -47,7 +47,7 @@ export async function GET(request) {
 
 // Adds one person or a pasted list. Rows without a password get a one-time setup link.
 export async function POST(request) {
-  const { response, scope, viewer } = await requirePeopleManager(request, { write: true });
+  const { response, scope, viewer } = await requireAdmin(request, { write: true, managers: true });
   if (response) return response;
   let body;
   try { body = createSchema.parse(await request.json()); } catch { return failure('invalid_people', 400); }
