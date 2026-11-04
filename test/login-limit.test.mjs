@@ -13,6 +13,19 @@ test('forwarded addresses are ignored unless an explicitly trusted single-IP hea
   assert.equal(loginClientKey(headers, { AUTH_TRUSTED_IP_HEADER: 'bad header!' }), 'shared');
 });
 
+test('IPv6 clients are limited by their /64, and IPv4-mapped addresses by their IPv4 address', () => {
+  const key = ip => loginClientKey(new Headers({ 'x-client-ip': ip }), { AUTH_TRUSTED_IP_HEADER: 'x-client-ip' });
+  assert.equal(key('2001:db8:1:2::1'), '2001:db8:1:2::/64');
+  assert.equal(key('2001:db8:1:2:ffff:ffff:ffff:ffff'), '2001:db8:1:2::/64', 'every address in the /64 shares one key');
+  assert.equal(key('2001:DB8:1:2:0:0:0:9'), '2001:db8:1:2::/64');
+  assert.notEqual(key('2001:db8:1:3::1'), key('2001:db8:1:2::1'));
+  assert.equal(key('::1'), '0:0:0:0::/64');
+  assert.equal(key('fe80::1%eth0'), 'fe80:0:0:0::/64');
+  assert.equal(key('::ffff:198.51.100.7'), '198.51.100.7');
+  assert.equal(key('::ffff:c633:6407'), '198.51.100.7');
+  assert.equal(key('198.51.100.7'), '198.51.100.7');
+});
+
 test('successful local shared-mode sign-ins do not reset someone else\'s failures', () => {
   const limiter = createFailureLimiter({ limit: 1 });
   limiter.failed('shared'); limiter.succeeded('shared');
