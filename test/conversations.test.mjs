@@ -258,6 +258,7 @@ test('Retry reuses the last question and replaces its failed answer, only in the
   assert.equal(await retried.store.retryTurn(turn), 'q-1');
   assert.deepEqual(retried.calls.find(call => call.text.startsWith('DELETE FROM chat_message WHERE reply_to')).values, ['q-1']);
   assert.ok(!retried.calls.some(call => call.text.startsWith('INSERT')), 'the question is not saved twice');
+  assert.match(retried.calls.find(call => call.text.startsWith('SELECT 1 AS found')).text, /status NOT IN \('failed', 'stopped'\)/, 'a stopped answer, as after a dropped connection, can be retried');
   for (const [why, options] of [['someone else\'s', { owner: 'user-2' }], ['a different question', { last: { id: 'q-1', content: 'What?' } }], ['already answered', { answered: true }], ['nothing asked yet', { last: null }]]) {
     const other = database(options);
     assert.equal(await other.store.retryTurn(turn), null, why);
