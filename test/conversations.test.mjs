@@ -159,6 +159,8 @@ test('the insights summary reads the chat_questions view and drops the grouping 
   assert.equal(summary.daily.length, 7);
   assert.ok(calls.every(call => call.text.includes('FROM chat_questions') || call.text.includes('FROM (')));
   assert.ok(calls.every(call => call.values[0] instanceof Date));
+  // The days match fillDays (UTC) whatever the database session's time zone is.
+  assert.match(calls.find(call => call.text.includes(' AS day,')).text, /strftime\(timezone\('UTC', asked_at\), '%Y-%m-%d'\) AS day/);
 });
 
 test('the migration creates each table, adds its nullable columns to older databases, then the view', () => {
