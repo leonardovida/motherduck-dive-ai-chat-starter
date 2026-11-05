@@ -2,6 +2,10 @@
 
 Every release of this starter is listed here, newest first. The full notes for each version are in [`release-notes/`](release-notes/) and on the [GitHub Releases page](https://github.com/leonardovida/motherduck-dive-ai-chat-starter/releases). Version numbers follow the policy in [docs/releasing.md](docs/releasing.md#version-numbers).
 
+## v0.6.2 - 2026-11-05
+
+This release prevents two groups from sharing a name, keeps the Activity tab working when one entry cannot be read, and fixes Retry after a dropped connection and the days in the Questions chart. Deployments that allow `^0.6.0` receive it, and no database migration is needed. See the [release notes](release-notes/v0.6.2.md).
+
 ## v0.6.1 - 2026-11-04
 
 This release fixes the AWS, Google Cloud and Azure deployments, scheduled jobs that followed redirects, IPv6 sign-in limits and two interface problems. Deployments that allow `^0.6.0` receive it, and no database migration is needed. Azure deployments made with v0.6.0 should set **Keep Generated Secrets** to `true` before deploying again. See the [release notes](release-notes/v0.6.1.md).

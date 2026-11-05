@@ -16,6 +16,7 @@ export async function PATCH(request, { params }) {
   const id = (await params).id.slice(0, 64);
   const groups = createGroupStore();
   try {
+    if (await groups.nameTaken(body.name, id)) return failure('group_name_taken', 409);
     if (body.serviceAccount && await groups.serviceAccountTaken(body.serviceAccount, id)) return failure('service_account_in_use', 409);
     // Giving a group a service account must not give anyone two MotherDuck identities.
     if (body.serviceAccount && (await groups.membersInOtherDataGroups(id)).length) return failure('members_in_other_data_group', 409);

@@ -15,6 +15,7 @@ export async function POST(request) {
   try { body = cleanGroup(groupSchema.parse(await readJsonBody(request, 32768))); } catch (error) { return badBody(error, 'invalid_group'); }
   try {
     const groups = createGroupStore();
+    if (await groups.nameTaken(body.name)) return failure('group_name_taken', 409);
     if (body.serviceAccount && await groups.serviceAccountTaken(body.serviceAccount)) return failure('service_account_in_use', 409);
     const id = await groups.create(body);
     await audit(viewer, 'group.created', { id, label: body.name }, { dives: body.dives, chat: body.chat, serviceAccount: body.serviceAccount });

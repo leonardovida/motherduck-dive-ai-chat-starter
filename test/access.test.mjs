@@ -481,3 +481,17 @@ test('adding a list of people looks up every username and email once and refuses
   assert.deepEqual(results.map(result => result.error ?? 'ok'), ['already_exists', 'ok', 'already_exists', 'already_exists']);
   assert.deepEqual(created, ['grace']);
 });
+
+test('a group name that another group already uses, in any case, is taken', async () => {
+  const { createGroupStore } = await import('../lib/groups.mjs');
+  const rows = [{ id: 'g-acme', name: 'Acme Corp' }];
+  const query = async (text, values) => {
+    assert.match(text, /lower\(name\) = lower\(\$1\) AND id <> \$2/);
+    return rows.filter(row => row.name.toLowerCase() === values[0].toLowerCase() && row.id !== values[1]).map(() => ({ found: 1 }));
+  };
+  const groups = createGroupStore(query);
+  assert.equal(await groups.nameTaken('acme corp'), true);
+  assert.equal(await groups.nameTaken('ACME CORP', 'g-new'), true);
+  assert.equal(await groups.nameTaken('Acme Corp', 'g-acme'), false, 'a group keeps its own name when edited');
+  assert.equal(await groups.nameTaken('Globex'), false);
+});

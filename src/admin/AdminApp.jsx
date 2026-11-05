@@ -77,6 +77,7 @@ const COPY = {
     invalid_group: "check the name and databases",
     invalid_access: "check the MotherDuck username",
     invalid_member: "pick a person first",
+    group_name_taken: "another group already has this name. Choose a different one",
     service_account_in_use: "another group already uses this service account, and two groups would read each other's data",
     invalid_sync: "refresh the page and try again",
     members_in_other_data_group: "some members already belong to another group with its own service account, and a person can have only one",
