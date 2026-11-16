@@ -139,6 +139,8 @@ const COPY = {
   question: "Question",
   answer: "Answer",
   routed: "Routing",
+  queriesSent: "SQL sent to MotherDuck ({count})",
+  queryResult: "{rows} rows",
   tokens: "{input} in · {output} out tokens",
   seconds: "{s}s",
   tool: { getDiveState: "Read the Dive state", listTables: "Listed tables", describeTable: "Described a table", runQuery: "Ran a query" },
@@ -1271,6 +1273,20 @@ function ConversationDetail({ id, diveTitle, onDeleted }) {
                     {tool.sql && <pre className="mt-1 overflow-x-auto whitespace-pre-wrap font-mono text-[11px]">{tool.sql}</pre>}
                   </details>
                 ))}
+                {message.queries?.length > 0 && (
+                  <details className="rounded border border-border px-2 py-1">
+                    <summary className="cursor-pointer">{fill(COPY.queriesSent, { count: message.queries.length })}</summary>
+                    <ol className="mt-1 grid gap-2">
+                      {message.queries.map((entry, index) => (
+                        <li key={index}>
+                          <span>{index + 1}. {entry.error ? entry.error : fill(COPY.queryResult, { rows: entry.rows ?? 0 })}{entry.ms != null ? ` · ${entry.ms} ms` : ""}</span>
+                          <pre className="mt-1 overflow-x-auto whitespace-pre-wrap font-mono text-[11px]">{entry.sql}</pre>
+                          {entry.parameters?.length > 0 && <span className="break-words font-mono text-[11px]">{entry.parameters.map((value, i) => `$${i + 1} = ${value}`).join(" · ")}</span>}
+                        </li>
+                      ))}
+                    </ol>
+                  </details>
+                )}
               </div>
             )}
           </li>

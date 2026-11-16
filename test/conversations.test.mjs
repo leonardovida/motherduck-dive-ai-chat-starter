@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { conversationOwner, createConversationStore, failedText, recordingEnabled, retentionDays, toolReceipts } from '../lib/conversations.mjs';
+import { conversationOwner, createConversationStore, createQueryLog, failedText, recordingEnabled, retentionDays, toolReceipts } from '../lib/conversations.mjs';
 import { createInsights, fillDays, insightFilter } from '../lib/insights.mjs';
 import { createStatements } from '../lib/app-db-schema.mjs';
 import { authOptions } from '../lib/auth.mjs';
@@ -70,7 +70,29 @@ test('answers store compact SQL receipts, never result rows', async () => {
   const values = calls[0].values;
   assert.deepEqual(values.slice(2, 4), ['assistant', 'One row.']);
   assert.deepEqual(values.slice(5, 12), ['luna', 'anthropic', 'claude-haiku-5-5', 'rules: lookup', 10, 3, 1234]);
-  assert.deepEqual(values.slice(13), [null, 'answered']);
+  assert.deepEqual(values.slice(13), [null, 'answered', null]);
+});
+
+test('every statement sent for an answer is logged with its outcome and saved without result rows', async () => {
+  const log = createQueryLog();
+  const execute = async (sql, values) => { if (sql.includes('boom')) throw new Error('Binder Error: no column boom\nLINE 1'); return [{ secret: 'value' }, { secret: 'other' }].slice(0, values.length ? 1 : 2); };
+  assert.equal((await log.run(execute, 'SELECT * FROM t')).length, 2);
+  await log.run(execute, 'SELECT * FROM t WHERE id = $1', ['42']);
+  await assert.rejects(log.run(execute, 'SELECT boom FROM t'));
+  assert.deepEqual(log.entries.map(({ ms, ...entry }) => entry), [
+    { sql: 'SELECT * FROM t', rows: 2 },
+    { sql: 'SELECT * FROM t WHERE id = $1', parameters: ['42'], rows: 1 },
+    { sql: 'SELECT boom FROM t', error: 'Binder Error: no column boom' },
+  ]);
+  assert.ok(log.entries.every(entry => Number.isInteger(entry.ms)));
+  assert.ok(!JSON.stringify(log.entries).includes('secret'));
+  // A runaway answer cannot grow the saved log without bound.
+  for (let i = 0; i < 100; i++) await log.run(execute, `SELECT ${i}`);
+  assert.equal(log.entries.length, 60);
+  const { calls, query } = fakeQuery();
+  await createConversationStore(query).finishTurn({ conversationId: 'conv-12345678', answer: 'Two rows.', queries: log.entries.slice(0, 3) });
+  assert.match(calls[0].text, /status, queries\) VALUES/);
+  assert.deepEqual(JSON.parse(calls[0].values[15]).map(entry => entry.sql), ['SELECT * FROM t', 'SELECT * FROM t WHERE id = $1', 'SELECT boom FROM t']);
 });
 
 test('a question keeps the asker\'s groups and Dive state; an answer links to it with its outcome', async () => {
@@ -85,7 +107,7 @@ test('a question keeps the asker\'s groups and Dive state; an answer links to it
   assert.deepEqual(calls.filter(call => call.text.startsWith('INSERT INTO chat_message')).at(-1).values.slice(4, 6), [null, '[]']);
   calls.length = 0;
   await store.finishTurn({ conversationId: 'conv-12345678', answerId: 'answer-1', replyTo: 'question-1', status: 'stopped', answer: failedText(false) });
-  assert.deepEqual([calls[0].values[0], calls[0].values[3], ...calls[0].values.slice(13)], ['answer-1', '[Stopped before an answer.]', 'question-1', 'stopped']);
+  assert.deepEqual([calls[0].values[0], calls[0].values[3], ...calls[0].values.slice(13, 15)], ['answer-1', '[Stopped before an answer.]', 'question-1', 'stopped']);
   await store.finishTurn({ conversationId: 'conv-12345678', status: 'nonsense', answer: 'x' });
   assert.equal(calls.at(-2).values[14], 'answered');
 });
@@ -174,6 +196,9 @@ test('the migration creates each table, adds its nullable columns to older datab
   // Answers pair with their question by reply_to only, which DuckDB runs as a hash join.
   assert.match(sql, /LEFT JOIN chat_message a ON a\.reply_to = q\.id AND a\.role = 'assistant'/);
   assert.doesNotMatch(sql, /lead\(/);
+  assert.match(sql, /ALTER TABLE chat_message ADD COLUMN IF NOT EXISTS queries JSON/);
+  // One row per SQL statement sent for an answer.
+  assert.match(sql, /CREATE OR REPLACE VIEW chat_queries AS[\s\S]*unnest\(from_json\(a\.queries, /);
   assert.equal(statements.at(-1).startsWith('CREATE OR REPLACE VIEW chat_questions'), true);
 });
 

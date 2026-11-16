@@ -131,6 +131,21 @@ ORDER BY asked_at DESC;
 
 The view reads the app database, which also holds accounts and sessions. Give a dashboard its own read-only copy, for example `CREATE TABLE analytics.chat_questions AS FROM dive_chat_app.chat_questions` on a schedule, rather than sharing the app database.
 
+### Every SQL statement the assistant sent
+
+Each saved answer also keeps every statement sent to the Dive's database while answering it: the SQL, its parameters, the row count, the duration and any error. This covers queries the assistant wrote itself and the fixed queries behind a Dive's own tools. An administrator sees them under **SQL sent to MotherDuck** on each answer in **Conversations**, and the `chat_queries` view has one row per statement:
+
+```sql
+-- Slowest and failing statements in the last 7 days
+SELECT answered_at, user_label, dive_key, duration_ms, row_count, error, sql
+FROM dive_chat_app.chat_queries
+WHERE answered_at >= now() - INTERVAL 7 DAY
+ORDER BY error IS NULL, duration_ms DESC
+LIMIT 50;
+```
+
+Join it to `chat_questions` on `question_id` to read each statement beside the question that caused it. Result rows are never stored.
+
 ### Estimate the cost
 
 Set `MODEL_PRICES` to your provider's prices per million tokens for each tier, as `tier:input/output` pairs, for example `MODEL_PRICES=luna:0.25/2,sol:1.25/10,astra:5/25`. The **Questions** tab then shows an estimated cost for the period from the saved token counts. `MODEL_PRICE_CURRENCY` sets the three-letter currency shown (default `USD`). A tier without a price is named under the tile rather than counted as free. The estimate leaves out the classification request that Auto routing sometimes makes, follow-up suggestions and topic grouping, so compare it with your provider's bill.
