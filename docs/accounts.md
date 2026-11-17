@@ -133,11 +133,26 @@ The view reads the app database, which also holds accounts and sessions. Give a 
 
 ### Every SQL statement the assistant sent
 
-Each saved answer also keeps every statement sent to the Dive's database while answering it: the SQL, its parameters, the row count, the duration and any error. This covers queries the assistant wrote itself and the fixed queries behind a Dive's own tools. An administrator sees them under **SQL sent to MotherDuck** on each answer in **Conversations**, and the `chat_queries` view has one row per statement:
+Each saved answer also keeps every statement sent to the Dive's database while answering it: the SQL, its parameters, the exact text sent with the parameters bound in, when it was sent, the tool call that sent it, the row count, the duration and any error. This covers queries the assistant wrote itself and the fixed queries behind a Dive's own tools. An administrator sees them under **SQL sent to MotherDuck** on each answer in **Conversations and SQL**, in the order they ran, each with its start time in the viewer's time zone and a button to copy the SQL. The `chat_queries` view has one row per statement:
+
+| Column | What it holds |
+| --- | --- |
+| `position` | The statement's place in the answer, from 1. |
+| `started_at` | When the statement was sent to MotherDuck (`TIMESTAMPTZ`), after any wait for the connection or for an earlier statement. |
+| `tool` | The tool that sent it, such as `runQuery`. Empty for a statement sent outside a tool call. |
+| `sent` | `false` for a statement that failed before it reached MotherDuck, for example because the request was cancelled or the connection failed. Such a statement has no `started_at`, `duration_ms` or `executed_sql`. |
+| `sql`, `parameters` | The statement as the tool wrote it, with `$1`-style placeholders, and the values for them (each value cut to 200 characters). |
+| `executed_sql` | The exact text sent to MotherDuck: `sql` with the parameters bound in. |
+| `truncated` | `true` when the statement was longer than 8,200 characters and only its start was saved. Every query the assistant can write fits. |
+| `row_count`, `duration_ms`, `error` | How it went. `duration_ms` counts from the moment the statement was sent. |
+
+An answer keeps its first 60 statements. When there were more, `chat_message.queries_dropped` holds how many more, and the answer in **Conversations and SQL** says so.
+
+Statements saved before `started_at`, `tool`, `sent`, `truncated` and `executed_sql` were recorded have them empty (`NULL`), except that `executed_sql` equals `sql` for a statement without parameters. Run `npm run db:migrate` after upgrading to add the new columns.
 
 ```sql
 -- Slowest and failing statements in the last 7 days
-SELECT answered_at, user_label, dive_key, duration_ms, row_count, error, sql
+SELECT started_at, user_label, dive_key, tool, duration_ms, row_count, error, executed_sql
 FROM dive_chat_app.chat_queries
 WHERE answered_at >= now() - INTERVAL 7 DAY
 ORDER BY error IS NULL, duration_ms DESC

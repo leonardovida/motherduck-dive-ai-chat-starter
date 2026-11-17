@@ -1,8 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { conversationOwner, createConversationStore, createQueryLog, failedText, recordingEnabled, retentionDays, toolReceipts } from '../lib/conversations.mjs';
+import { tool } from 'ai';
+import { z } from 'zod';
+import { conversationOwner, createConversationStore, createQueryLog, failedText, QUERY_LOG_CHARS, recordingEnabled, retentionDays, toolReceipts } from '../lib/conversations.mjs';
+import { createChatReaderSession, createDataTools } from '../lib/chat-data.mjs';
+import { MAX_QUERY_CHARS, MAX_ROWS } from '../lib/sql-guard.mjs';
 import { createInsights, fillDays, insightFilter } from '../lib/insights.mjs';
-import { createStatements } from '../lib/app-db-schema.mjs';
+import { CHAT_QUERIES_MARKER, createStatements } from '../lib/app-db-schema.mjs';
 import { authOptions } from '../lib/auth.mjs';
 
 // A fake query function that records SQL and answers the few lookups the store makes.
@@ -73,26 +77,131 @@ test('answers store compact SQL receipts, never result rows', async () => {
   assert.deepEqual(values.slice(13), [null, 'answered', null]);
 });
 
-test('every statement sent for an answer is logged with its outcome and saved without result rows', async () => {
+// A stand-in for pg.Client behind the real chat reader: it records the exact text of each statement.
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+function fakeReader({ delay = 0, connectFails = false, signal } = {}) {
+  const sent = [];
+  class Client {
+    on() {}
+    async connect() { await sleep(delay); if (connectFails) throw new Error('fixture connection failure'); }
+    async end() {}
+    async query(text) { sent.push(text); await sleep(delay); if (text.includes('boom')) throw new Error('Binder Error: no column boom\nLINE 1'); return { rows: [{ secret: 'value' }, { secret: 'other' }] }; }
+  }
+  const reader = createChatReaderSession({ token: 'fixture', database: 'fixture' }, { Client, signal });
   const log = createQueryLog();
-  const execute = async (sql, values) => { if (sql.includes('boom')) throw new Error('Binder Error: no column boom\nLINE 1'); return [{ secret: 'value' }, { secret: 'other' }].slice(0, values.length ? 1 : 2); };
-  assert.equal((await log.run(execute, 'SELECT * FROM t')).length, 2);
-  await log.run(execute, 'SELECT * FROM t WHERE id = $1', ['42']);
-  await assert.rejects(log.run(execute, 'SELECT boom FROM t'));
-  assert.deepEqual(log.entries.map(({ ms, ...entry }) => entry), [
-    { sql: 'SELECT * FROM t', rows: 2 },
-    { sql: 'SELECT * FROM t WHERE id = $1', parameters: ['42'], rows: 1 },
-    { sql: 'SELECT boom FROM t', error: 'Binder Error: no column boom' },
+  // The same wiring as app/api/chat/route.js.
+  const run = (text, values) => log.run((sql, parameters, options) => reader.query(sql, parameters, options), text, values);
+  return { sent, reader, log, run };
+}
+
+test('every statement sent for an answer is logged with its outcome and saved without result rows', async () => {
+  const { sent, log, run } = fakeReader();
+  assert.equal((await run('SELECT * FROM t')).length, 2);
+  await run('SELECT * FROM t WHERE id = $1', ['42']);
+  await assert.rejects(run('SELECT boom FROM t'));
+  assert.deepEqual(log.entries.map(({ ms, started_at, ...entry }) => entry), [
+    { sql: 'SELECT * FROM t', sent: true, truncated: false, rows: 2 },
+    { sql: 'SELECT * FROM t WHERE id = $1', parameters: ['42'], sent: true, truncated: false, bound_sql: "SELECT * FROM t WHERE id = '42'", rows: 2 },
+    { sql: 'SELECT boom FROM t', sent: true, truncated: false, error: 'Binder Error: no column boom' },
   ]);
+  // What is saved is what the client received.
+  assert.deepEqual(sent, log.entries.map(entry => entry.bound_sql ?? entry.sql));
   assert.ok(log.entries.every(entry => Number.isInteger(entry.ms)));
+  // Each start time is an ISO timestamp in UTC.
+  assert.ok(log.entries.every(entry => /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(entry.started_at)));
   assert.ok(!JSON.stringify(log.entries).includes('secret'));
-  // A runaway answer cannot grow the saved log without bound.
-  for (let i = 0; i < 100; i++) await log.run(execute, `SELECT ${i}`);
+  // A runaway answer cannot grow the saved log without bound; the statements past the limit are counted.
+  for (let i = 0; i < 100; i++) await run(`SELECT ${i}`);
   assert.equal(log.entries.length, 60);
+  assert.equal(log.dropped, 43);
   const { calls, query } = fakeQuery();
-  await createConversationStore(query).finishTurn({ conversationId: 'conv-12345678', answer: 'Two rows.', queries: log.entries.slice(0, 3) });
+  const store = createConversationStore(query);
+  await store.finishTurn({ conversationId: 'conv-12345678', answer: 'Many rows.', queries: log.entries, queriesDropped: log.dropped });
+  assert.match(calls[0].text, /status, queries, queries_dropped\) VALUES \(.*\$16, \$17\)/);
+  assert.equal(calls[0].values[16], 43);
+  const saved = JSON.parse(calls[0].values[15]);
+  assert.equal(saved.length, 60);
+  assert.deepEqual(saved.slice(0, 3).map(entry => entry.sql), ['SELECT * FROM t', 'SELECT * FROM t WHERE id = $1', 'SELECT boom FROM t']);
+  assert.equal(saved[1].bound_sql, "SELECT * FROM t WHERE id = '42'");
+  // Without dropped statements the column is left out, so a database not yet migrated still saves answers.
+  calls.length = 0;
+  await store.finishTurn({ conversationId: 'conv-12345678', answer: 'Two rows.', queries: log.entries.slice(0, 3) });
   assert.match(calls[0].text, /status, queries\) VALUES/);
-  assert.deepEqual(JSON.parse(calls[0].values[15]).map(entry => entry.sql), ['SELECT * FROM t', 'SELECT * FROM t WHERE id = $1', 'SELECT boom FROM t']);
+  assert.equal(calls[0].values.length, 16);
+});
+
+test('a statement is timed from when it is sent, and names the tool that sent it', async () => {
+  const { sent, reader, log, run } = fakeReader({ delay: 50 });
+  const inputSchema = z.object({ name: z.string() });
+  const tools = log.tagTools({
+    lookup: tool({ description: 'x', inputSchema, execute: async ({ name }) => run('SELECT * FROM t WHERE name = $1 AND n > $2', [name, 3]) }),
+    other: tool({ description: 'y', inputSchema: z.object({}), execute: async () => run('SELECT 2') }),
+    state: tool({ description: 'z', inputSchema: z.object({}), execute: async () => ({ state: {} }) }),
+  });
+  assert.equal(tools.lookup.inputSchema, inputSchema);
+  assert.equal(tools.lookup.description, 'x');
+  const before = Date.now();
+  // Two tools at once share one connection, which runs one statement at a time.
+  await Promise.all([tools.lookup.execute({ name: "O'Brien" }, { toolCallId: 'a', messages: [] }), tools.other.execute({}, { toolCallId: 'b', messages: [] })]);
+  const bothDone = Date.now();
+  assert.deepEqual(await tools.state.execute({}, { toolCallId: 'c', messages: [] }), { state: {} });
+  // A statement outside any tool has no tool.
+  await run('SELECT 3');
+  const [first, second, third] = log.entries;
+  assert.equal(first.bound_sql, "SELECT * FROM t WHERE name = 'O''Brien' AND n > 3");
+  assert.deepEqual(first.parameters, ["O'Brien", '3']);
+  assert.deepEqual([first.tool, second.tool, third.tool], ['lookup', 'other', undefined]);
+  assert.equal(second.bound_sql, undefined);
+  assert.deepEqual(sent, log.entries.map(entry => entry.bound_sql ?? entry.sql));
+  // The first statement starts after the connection is made, and neither counts time spent waiting.
+  assert.ok(Date.parse(first.started_at) - before >= 45, 'connection time is not part of the statement');
+  assert.ok(Date.parse(second.started_at) >= Date.parse(first.started_at) + first.ms - 1, 'the second starts when the first is done');
+  // ms runs from the send: the first ends before the second goes out, the second before both calls return.
+  assert.ok(Date.parse(second.started_at) - Date.parse(first.started_at) >= first.ms - 1, `first ms ${first.ms} counts only its own run`);
+  assert.ok(Date.parse(second.started_at) + second.ms <= bothDone + 1, `second ms ${second.ms} leaves out its wait`);
+  assert.ok(log.entries.every(entry => entry.ms >= 45));
+  await reader.close();
+});
+
+test('a statement that never went out is not sent; one too long to keep is marked truncated', async () => {
+  const controller = new AbortController();
+  const cancelled = fakeReader({ signal: controller.signal });
+  controller.abort();
+  await assert.rejects(cancelled.run('SELECT 1'));
+  const refusedReader = fakeReader();
+  await assert.rejects(refusedReader.run('SELECT $1', [{ object: true }]));
+  const offline = fakeReader({ connectFails: true });
+  await assert.rejects(offline.run('SELECT 1'));
+  for (const { log, sent } of [cancelled, refusedReader, offline]) {
+    assert.deepEqual(sent, []);
+    const [entry] = log.entries;
+    assert.equal(entry.sent, false);
+    assert.equal(entry.started_at, undefined);
+    assert.equal(entry.ms, undefined);
+    assert.ok(entry.error);
+  }
+  assert.equal(cancelled.log.entries[0].error, 'Request cancelled');
+  assert.deepEqual(refusedReader.log.entries[0].parameters, ['[object Object]']);
+
+  // The longest query runQuery accepts is kept in full, with its LIMIT wrapper.
+  const { sent, log, run } = fakeReader();
+  const longest = `SELECT '${'x'.repeat(MAX_QUERY_CHARS - 9)}'`;
+  assert.equal(longest.length, MAX_QUERY_CHARS);
+  const result = await createDataTools(run).runQuery({ sql: longest, limit: MAX_ROWS });
+  assert.equal(result.error, undefined);
+  assert.equal(log.entries[0].truncated, false);
+  assert.equal(log.entries[0].sql, sent[0]);
+  assert.ok(sent[0].length > MAX_QUERY_CHARS && sent[0].length <= QUERY_LOG_CHARS);
+  // Longer text is cut and marked, whether the statement itself or its bound form is too long.
+  await run(`SELECT '${'y'.repeat(QUERY_LOG_CHARS)}'`);
+  await run('SELECT $1', ['z'.repeat(QUERY_LOG_CHARS)]);
+  const [, tooLong, boundTooLong] = log.entries;
+  assert.equal(tooLong.sql.length, QUERY_LOG_CHARS);
+  assert.equal(tooLong.truncated, true);
+  assert.equal(boundTooLong.sql, 'SELECT $1');
+  assert.equal(boundTooLong.bound_sql.length, QUERY_LOG_CHARS);
+  assert.equal(boundTooLong.parameters[0].length, 200);
+  assert.equal(boundTooLong.truncated, true);
 });
 
 test('a question keeps the asker\'s groups and Dive state; an answer links to it with its outcome', async () => {
@@ -199,6 +308,14 @@ test('the migration creates each table, adds its nullable columns to older datab
   assert.match(sql, /ALTER TABLE chat_message ADD COLUMN IF NOT EXISTS queries JSON/);
   // One row per SQL statement sent for an answer.
   assert.match(sql, /CREATE OR REPLACE VIEW chat_queries AS[\s\S]*unnest\(from_json\(a\.queries, /);
+  // When each statement started, the tool that sent it, whether it went out, the exact text sent and
+  // whether it was cut. lib/app-db.mjs re-migrates a deployment whose view lacks the newest column.
+  assert.equal(CHAT_QUERIES_MARKER, 'truncated');
+  assert.match(sql, /TRY_CAST\(s\.entry\.started_at AS TIMESTAMPTZ\) AS started_at, s\.entry\.tool AS tool, s\.entry\.sent AS sent, /);
+  assert.match(sql, /CASE WHEN s\.entry\.sent THEN coalesce\(s\.entry\.bound_sql, s\.entry\.sql\)\s+WHEN s\.entry\.sent IS NULL THEN coalesce\(s\.entry\.bound_sql, CASE WHEN coalesce\(len\(s\.entry\.parameters\), 0\) = 0 THEN s\.entry\.sql END\) END AS executed_sql,\s+s\.entry\.truncated AS truncated,/);
+  // The count of statements past the saved limit stays on the answer, out of chat_queries.
+  assert.match(sql, /ALTER TABLE chat_message ADD COLUMN IF NOT EXISTS queries_dropped INTEGER/);
+  assert.doesNotMatch(sql.slice(sql.indexOf('VIEW chat_queries')), /queries_dropped/);
   assert.equal(statements.at(-1).startsWith('CREATE OR REPLACE VIEW chat_questions'), true);
 });
 
