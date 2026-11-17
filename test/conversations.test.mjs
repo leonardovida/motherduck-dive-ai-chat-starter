@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { tool } from 'ai';
 import { z } from 'zod';
-import { conversationOwner, createConversationStore, createQueryLog, failedText, QUERY_LOG_CHARS, recordingEnabled, retentionDays, toolReceipts } from '../lib/conversations.mjs';
+import { conversationOwner, createConversationStore, createQueryLog, failedText, QUERY_LOG_CHARS, QUERY_NOT_RUN, recordingEnabled, retentionDays, toolReceipts } from '../lib/conversations.mjs';
 import { createChatReaderSession, createDataTools } from '../lib/chat-data.mjs';
 import { MAX_QUERY_CHARS, MAX_ROWS } from '../lib/sql-guard.mjs';
 import { createInsights, fillDays, insightFilter } from '../lib/insights.mjs';
@@ -79,15 +79,15 @@ test('answers store compact SQL receipts, never result rows', async () => {
 
 // A stand-in for pg.Client behind the real chat reader: it records the exact text of each statement.
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
-function fakeReader({ delay = 0, connectFails = false, signal } = {}) {
+function fakeReader({ delay = 0, connectFails = false, signal, Client: Custom } = {}) {
   const sent = [];
   class Client {
     on() {}
     async connect() { await sleep(delay); if (connectFails) throw new Error('fixture connection failure'); }
     async end() {}
-    async query(text) { sent.push(text); await sleep(delay); if (text.includes('boom')) throw new Error('Binder Error: no column boom\nLINE 1'); return { rows: [{ secret: 'value' }, { secret: 'other' }] }; }
+    async query(text) { sent.push(text); await sleep(delay); if (text.includes('boom')) throw Object.assign(new Error('Binder Error: no column boom\nLINE 1'), { code: '42703' }); return { rows: [{ secret: 'value' }, { secret: 'other' }] }; }
   }
-  const reader = createChatReaderSession({ token: 'fixture', database: 'fixture' }, { Client, signal });
+  const reader = createChatReaderSession({ token: 'fixture', database: 'fixture' }, { Client: Custom ?? Client, signal });
   const log = createQueryLog();
   // The same wiring as app/api/chat/route.js.
   const run = (text, values) => log.run((sql, parameters, options) => reader.query(sql, parameters, options), text, values);
@@ -180,6 +180,8 @@ test('a statement that never went out is not sent; one too long to keep is marke
     assert.ok(entry.error);
   }
   assert.equal(cancelled.log.entries[0].error, 'Request cancelled');
+  // Not a SQL error, so the failure's own text (which can name hosts or credentials) is not kept.
+  assert.equal(offline.log.entries[0].error, QUERY_NOT_RUN);
   assert.deepEqual(refusedReader.log.entries[0].parameters, ['[object Object]']);
 
   // The longest query runQuery accepts is kept in full, with its LIMIT wrapper.
@@ -407,4 +409,49 @@ test('Retry reuses the last question and replaces its failed answer, only in the
     assert.equal(await other.store.retryTurn(turn), null, why);
     assert.ok(!other.calls.some(call => call.text.startsWith('DELETE')), why);
   }
+});
+
+test('only a SQL error keeps the database\'s message; connection and sign-in failures keep a fixed text', async () => {
+  const failures = { 'SELECT bad': ['42601', 'Parser Error: syntax error at or near "bad"\nLINE 1'], 'SELECT dropped': ['08006', 'connection to server at "10.0.0.7" failed'], 'SELECT denied': ['28P01', 'password authentication failed for user "svc_reader" token md_abc'], 'SELECT slow': ['ETIMEDOUT', 'connect ETIMEDOUT 10.0.0.7:5432'] };
+  class Client {
+    on() {}
+    async connect() {}
+    async end() {}
+    async query(text) { const [code, message] = failures[text]; throw Object.assign(new Error(message), { code }); }
+  }
+  const { log, run } = fakeReader({ Client });
+  for (const text of Object.keys(failures)) await assert.rejects(run(text));
+  assert.deepEqual(log.entries.map(entry => entry.error), ['Parser Error: syntax error at or near "bad"', QUERY_NOT_RUN, QUERY_NOT_RUN, QUERY_NOT_RUN]);
+  assert.ok(!JSON.stringify(log.entries).match(/10\.0\.0\.7|svc_reader|md_abc/));
+});
+
+test('the saved row count is the number of rows the model received', async () => {
+  const { log, run } = fakeReader();
+  const tools = createDataTools(run);
+  // The fake database returns two rows for any query; runQuery asks for one past its limit.
+  const result = await tools.runQuery({ sql: 'SELECT * FROM t', limit: 1 });
+  assert.equal(result.rowCount, 1);
+  assert.equal(result.truncated, true);
+  assert.equal(log.entries[0].rows, 1);
+  assert.match(log.entries[0].sql, /LIMIT 2$/);
+  const described = await tools.describeTable({ table: 't' });
+  assert.equal(log.entries[1].rows, 2, 'a plain statement keeps what the database returned');
+  assert.equal(log.entries[2].rows, described.sample.length);
+});
+
+test('a broken connection whose end() hangs does not hold up the next statement', async () => {
+  let opened = 0;
+  class Client {
+    constructor() { this.n = ++opened; }
+    on() {}
+    async connect() {}
+    end() { return new Promise(() => {}); }
+    async query(text) { if (this.n === 1) throw Object.assign(new Error('Connection terminated unexpectedly'), { code: 'ECONNRESET' }); return { rows: [{ text }] }; }
+  }
+  const { log, run } = fakeReader({ Client });
+  await assert.rejects(run('SELECT 1'));
+  const next = await Promise.race([run('SELECT 2'), sleep(1000).then(() => 'blocked')]);
+  assert.deepEqual(next, [{ text: 'SELECT 2' }]);
+  assert.equal(opened, 2);
+  assert.deepEqual(log.entries.map(entry => [entry.sent, entry.error ?? null]), [[true, QUERY_NOT_RUN], [true, null]]);
 });

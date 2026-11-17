@@ -133,7 +133,7 @@ The view reads the app database, which also holds accounts and sessions. Give a 
 
 ### Every SQL statement the assistant sent
 
-Each saved answer also keeps every statement sent to the Dive's database while answering it: the SQL, its parameters, the exact text sent with the parameters bound in, when it was sent, the tool call that sent it, the row count, the duration and any error. This covers queries the assistant wrote itself and the fixed queries behind a Dive's own tools. An administrator sees them under **SQL sent to MotherDuck** on each answer in **Conversations and SQL**, in the order they ran, each with its start time in the viewer's time zone and a button to copy the SQL. The `chat_queries` view has one row per statement:
+Each saved answer also keeps every statement sent to the Dive's database while answering it: the SQL, its parameters, the exact text sent with the parameters bound in, when it was sent, the tool call that sent it, the row count, the duration and any error. This covers the queries the assistant wrote itself (`runQuery`) and the fixed queries behind `listTables` and `describeTable`. An administrator sees them under **SQL sent to MotherDuck** on each answer in **Conversations and SQL**, in the order they ran, each with its start time in the viewer's time zone and a button to copy the SQL. The `chat_queries` view has one row per statement:
 
 | Column | What it holds |
 | --- | --- |
@@ -144,7 +144,7 @@ Each saved answer also keeps every statement sent to the Dive's database while a
 | `sql`, `parameters` | The statement as the tool wrote it, with `$1`-style placeholders, and the values for them (each value cut to 200 characters). |
 | `executed_sql` | The exact text sent to MotherDuck: `sql` with the parameters bound in. |
 | `truncated` | `true` when the statement was longer than 8,200 characters and only its start was saved. Every query the assistant can write fits. |
-| `row_count`, `duration_ms`, `error` | How it went. `duration_ms` counts from the moment the statement was sent. |
+| `row_count`, `duration_ms`, `error` | How it went. `row_count` is the number of rows the assistant received: for `runQuery` at most its row limit, although one more row is fetched to tell whether there were more. `duration_ms` counts from the moment the statement was sent. `error` is the database's message for a SQL error; a connection, sign-in or other failure is saved as a fixed text. |
 
 An answer keeps its first 60 statements. When there were more, `chat_message.queries_dropped` holds how many more, and the answer in **Conversations and SQL** says so.
 
