@@ -10,8 +10,10 @@ await startMotherDuckApi({ port: E2E.apiPort, token: E2E.embedToken });
 await startModel({ port: E2E.modelPort });
 
 // Only the app's own settings: nothing is inherited that could reach a real service.
+// CI=1 also off a CI runner: with it `next dev` shows no security-advisory "Insight" pill, which
+// sits in the bottom-left corner over the sidebar's Sign out button.
 const env = {
-  PATH: process.env.PATH, HOME: process.env.HOME, NODE_ENV: 'development', NEXT_TELEMETRY_DISABLED: '1', NEXT_DIST_DIR: '.next-e2e',
+  PATH: process.env.PATH, HOME: process.env.HOME, NODE_ENV: 'development', NEXT_TELEMETRY_DISABLED: '1', NEXT_DIST_DIR: '.next-e2e', CI: '1',
   SESSION_SECRET: randomBytes(32).toString('hex'), DEMO_PASSWORD: E2E.password, APP_TITLE: E2E.title,
   MOTHERDUCK_API_URL: `http://127.0.0.1:${E2E.apiPort}`, MOTHERDUCK_EMBED_TOKEN: E2E.embedToken, MOTHERDUCK_EMBED_USERNAME: 'e2e_reader',
   DIVE_OVERVIEW_ID: E2E.dives.overview, DIVE_EXPLORER_ID: E2E.dives.explorer, DIVE_EXPLORER_SHARE_URL: `md:_share/e2e/${E2E.dives.explorer.replaceAll('-', '')}`,
