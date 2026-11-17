@@ -6,6 +6,7 @@ import { modelPrices } from '../../../../lib/budgets.mjs';
 import { digestWebhook } from '../../../../lib/digest.mjs';
 import { chatConfigured } from '../../../../lib/chat-models.mjs';
 import { refreshModelSettings } from '../../../../lib/model-settings.mjs';
+import { sharedAdminAccounts } from '../../../../lib/auth.mjs';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -33,7 +34,8 @@ export async function GET(request) {
     const [summary, facets] = await Promise.all([insights.summary({ ...options, prices }), managed ? { dives: [], groups: managed.map(item => item.name) } : insights.facets()]);
     return Response.json({
       ...summary, facets, scope: managed ? 'manager' : 'admin',
-      ...(managed ? {} : { digest: Boolean(digestWebhook()), topicsAvailable: chatConfigured() }),
+      // The digest needs a schedule that shared-password admin does not run (/api/admin/digest is 404 there).
+      ...(managed ? {} : { digest: Boolean(digestWebhook()) && !sharedAdminAccounts(), topicsAvailable: chatConfigured() }),
     }, { headers: NO_STORE });
   } catch (error) {
     console.error('insights_failed', error?.code ?? error?.name);

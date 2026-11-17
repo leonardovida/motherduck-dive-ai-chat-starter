@@ -384,6 +384,17 @@ test('MotherDuck stays off with shared-password admin: no usernames, no service 
   });
 });
 
+test('the Questions tab offers no weekly digest with shared-password admin, even with a webhook set', async () => {
+  await inHybrid(async () => {
+    const insights = await import('../app/api/admin/insights/route.js');
+    const digest = await import('../app/api/admin/digest/route.js');
+    const response = await insights.GET(request('/api/admin/insights?days=30', { cookie: sharedCookie() }));
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).digest, false);
+    assert.equal((await digest.POST(request('/api/admin/digest', { method: 'POST', cookie: sharedCookie() }))).status, 404);
+  }, { DIGEST_WEBHOOK_URL: 'https://hooks.slack.test/services/T000/B000/XXXX' });
+});
+
 test('Better Auth endpoints the app does not use are refused, in every mode', async () => {
   for (const env of [{}, { SHARED_PASSWORD_ADMIN: undefined, MOTHERDUCK_APP_TOKEN: 'app' }]) {
     await inHybrid(async () => {
