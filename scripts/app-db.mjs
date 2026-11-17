@@ -17,7 +17,7 @@ const { authOptions, getAuth } = await import('../lib/auth.mjs');
 const { migrateAppDatabase } = await import('../lib/app-db-schema.mjs');
 
 if (!['migrate', 'create-admin'].includes(command)) fail('Usage: node scripts/app-db.mjs migrate | create-admin --username=<name>');
-if (!appStoreConfigured()) fail('Set MOTHERDUCK_APP_TOKEN (a read-write token for the app database) first. See docs/accounts.md.');
+if (!appStoreConfigured()) fail('Set MOTHERDUCK_APP_TOKEN (a read-write token for the app database) first, or SHARED_PASSWORD_ADMIN=true with MOTHERDUCK_EMBED_TOKEN. See docs/accounts.md.');
 
 async function ensureDatabase() {
   const name = appDatabase();

@@ -26,7 +26,7 @@ npm run --silent setup -- --json --production # also checks sign-in settings
 
 | Setting | Required | What it is | Where it comes from |
 | --- | --- | --- | --- |
-| `MOTHERDUCK_EMBED_TOKEN` | Yes | Lets the server open short-lived embed sessions for your MotherDuck organization. It never reaches the browser. | A MotherDuck token allowed to create embed sessions. Embedding requires a MotherDuck plan that supports embedded Dives. |
+| `MOTHERDUCK_EMBED_TOKEN` | Yes | Lets the server open short-lived embed sessions for your MotherDuck organization. It never reaches the browser. With `SHARED_PASSWORD_ADMIN=true` and no `MOTHERDUCK_APP_TOKEN`, it also creates and owns the app database, which holds password hashes, sessions and saved conversations. | A MotherDuck token allowed to create embed sessions. Embedding requires a MotherDuck plan that supports embedded Dives. |
 | `MOTHERDUCK_EMBED_USERNAME` | Yes | The **read-only service account** the embedded Dive runs as. Viewers see only what this account can read. | The exact username of a service account in the same organization. |
 | `DIVE_OVERVIEW_ID` | Yes | The ID of the saved Dive to show. | The Dive's URL in MotherDuck, or `list_dives` in the MotherDuck MCP server. The included `dives/starter.tsx` can be saved as a first Dive. |
 | `DIVE_OVERVIEW_VERSION` | No | Pins a specific saved version of the Dive, so later edits do not appear until you update the pin. | The Dive's version history. |

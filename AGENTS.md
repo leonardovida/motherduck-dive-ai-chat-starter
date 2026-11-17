@@ -13,7 +13,7 @@ When the user asks you to set up or adapt this repository, own the setup through
 
 ## Boundaries
 
-- Reuse existing authorized resources and read-only identities. The embed token creates sessions; the chat token queries data. They serve different purposes. Never substitute an admin token for the read-only chat token.
+- Reuse existing authorized resources and read-only identities. The embed token creates sessions; the chat token queries data. They serve different purposes. With `SHARED_PASSWORD_ADMIN=true` and no `MOTHERDUCK_APP_TOKEN`, the embed token also creates and owns the app database, which holds password hashes, sessions and conversations, so treat it as that database's read-write credential too. Never substitute an admin token for the read-only chat token.
 - A setup request does not waive account, credential or access prompts required by your tools. If provisioning is needed, use current supported MotherDuck tools/docs and the intended organization. Obtain any required approval before creating accounts, tokens, shares or grants. If tools cannot provision a resource, provide the exact manual step and continue independent work.
 - Store values in runtime secret management or an explicitly requested ignored local environment file. Never log tokens, embed-session URLs, database errors containing credentials or secret-manager contents. JSON diagnostics contain names and presence flags only. Share URLs also stay out of source control.
 - Keep provider keys server-side. Preserve the SQL guard, read-only grants, origin checks and production password requirements.
