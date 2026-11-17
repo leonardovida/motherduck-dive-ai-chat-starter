@@ -113,3 +113,19 @@ test('the shared administrator adds people and sets a password from the People t
   expect(passwords).toEqual([{ userId: 'u-ann', newPassword: 'a-new-password-123' }]);
   expect(seen).not.toContain('/api/admin/access-sync');
 });
+
+test('a personal administrator in this mode gets no MotherDuck access tab either', async ({ page }) => {
+  const seen = [];
+  page.on('request', request => seen.push(new URL(request.url()).pathname));
+  const personalAdmin = { name: 'Ann', username: 'ann', isAdmin: true, canManage: true, chat: true, mode: 'accounts' };
+  await page.route('**/api/auth', route => route.fulfill({ json: authState(personalAdmin) }));
+  await page.route('**/api/admin/people', route => route.fulfill({ json: { scope: 'admin', me: 'u-ann', maxImport: 200, mdGrants: false, mdAutomatic: false, dives: [{ key: 'overview', title: 'Overview', connected: true }], groups: [], users: [{ id: 'u-ann', username: 'ann', displayUsername: 'ann', name: 'Ann', email: 'ann@accounts.invalid', role: 'admin', diveAccess: '*', chatAccess: true, groups: [], updatedAt: '2026-11-01T00:00:00Z' }] } }));
+  await page.goto('/admin#motherduck');
+  const tabs = page.getByRole('tablist');
+  for (const name of ['People', 'Groups', 'Activity', 'Questions', 'Conversations', 'Models']) await expect(tabs.getByRole('tab', { name })).toBeVisible();
+  await expect(tabs.getByRole('tab', { name: 'MotherDuck access' })).toHaveCount(0);
+  // The hash asked for the MotherDuck tab; the portal opens People instead and never asks for the sync.
+  await expect(tabs.getByRole('tab', { name: 'People' })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByLabel('MotherDuck username (optional)')).toHaveCount(0);
+  expect(seen).not.toContain('/api/admin/access-sync');
+});

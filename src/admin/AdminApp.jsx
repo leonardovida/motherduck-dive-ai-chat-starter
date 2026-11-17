@@ -1507,12 +1507,12 @@ export default function AdminApp() {
   const loadSync = React.useCallback(async () => {
     try { setSync(await api("/api/admin/access-sync")); } catch (error) { setSync({ error: reasonFor(error), grants: [] }); }
   }, []);
-  // The shared-password administrator (SHARED_PASSWORD_ADMIN) has no MotherDuck access tab.
-  const sharedAdmin = React.useRef(false);
+  // With SHARED_PASSWORD_ADMIN (mdGrants: false) the whole deployment has no MotherDuck access tab,
+  // whichever administrator is signed in.
   const fetchPeople = React.useCallback(async () => {
     const people = await api("/api/admin/people");
     setData(people);
-    if (people.scope === "admin" && !sharedAdmin.current) await loadSync();
+    if (people.scope === "admin" && people.mdGrants !== false) await loadSync();
   }, [loadSync]);
   // Reloads after a change. The previous list stays on screen, with the failure above it.
   const load = React.useCallback(async () => {
@@ -1529,15 +1529,14 @@ export default function AdminApp() {
         if (auth.mode !== "accounts") return setStatus({ state: "off" });
         if (!auth.authenticated) return setStatus({ state: "signin" });
         if (!auth.user?.canManage) return setStatus({ state: "forbidden" });
-        sharedAdmin.current = auth.user.sharedAdmin === true;
         await fetchPeople();
-        setStatus({ state: "ready", demo: Boolean(auth.publicDemo), shared: sharedAdmin.current });
+        setStatus({ state: "ready", demo: Boolean(auth.publicDemo) });
       } catch (error) { setStatus({ state: "error", message: reasonFor(error) }); }
     })();
   }, [fetchPeople]);
 
   const admin = data.scope === "admin";
-  const tabs = [["users", COPY.users, Users], ...(admin ? [["groups", COPY.groups, UsersRound], ...(status.shared ? [] : [["motherduck", COPY.motherduck, Database]]), ["activity", COPY.activity, History], ["questions", COPY.questions, ChartColumn], ["conversations", COPY.conversations, MessageSquare], ["models", COPY.models, Bot]] : [["questions", COPY.questions, ChartColumn]])];
+  const tabs = [["users", COPY.users, Users], ...(admin ? [["groups", COPY.groups, UsersRound], ...(data.mdGrants === false ? [] : [["motherduck", COPY.motherduck, Database]]), ["activity", COPY.activity, History], ["questions", COPY.questions, ChartColumn], ["conversations", COPY.conversations, MessageSquare], ["models", COPY.models, Bot]] : [["questions", COPY.questions, ChartColumn]])];
   const shown = tabs.some(([key]) => key === tab) ? tab : tabs[0][0];
   React.useEffect(() => { if (status.state === "ready" && shown === "motherduck") loadSync(); }, [status.state, shown, loadSync]);
   // Below desktop width the tab row scrolls sideways. The open tab is scrolled into the row (only
