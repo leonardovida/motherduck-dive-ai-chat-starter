@@ -15,7 +15,7 @@ Use your managed runtime environment, such as a 1Password Environment. Inject it
 | Variable | Purpose | Who supplies it |
 | --- | --- | --- |
 | `OPENAI_API_KEY` and/or `ANTHROPIC_API_KEY` | Calls accessible OpenAI or Anthropic models from the server. One is enough. | You, through your secret manager. |
-| `MOTHERDUCK_EMBED_TOKEN` | Creates embed sessions in the intended MotherDuck organization. | You or your authorized administrator, through your secret manager. |
+| `MOTHERDUCK_EMBED_TOKEN` | Creates embed sessions in the intended MotherDuck organization. With `SHARED_PASSWORD_ADMIN=true` and no `MOTHERDUCK_APP_TOKEN`, it also creates and owns the app database (password hashes, sessions, conversations). | You or your authorized administrator, through your secret manager. |
 | `MOTHERDUCK_CHAT_TOKEN` | Queries the chosen data with a read-only identity. | Reuse an existing scoped token, or have the agent provision one through an approved workflow. |
 
 These are three credentials in **one runtime destination**. Per-person accounts add a fourth, optional credential, `MOTHERDUCK_APP_TOKEN`, a read-write token for the app's own database (see [accounts](accounts.md)). An existing MotherDuck connector helps the agent discover resources, but does not automatically supply tokens to this application's server. Embedding also requires the appropriate MotherDuck plan and service-account access.

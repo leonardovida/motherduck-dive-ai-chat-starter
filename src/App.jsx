@@ -56,7 +56,8 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   RefreshCw,
-  ShieldCheck,
+  History,
+  Sparkles,
   KeyRound,
   Unplug,
   Settings2,
@@ -67,6 +68,16 @@ import {
 import { cn } from "@/lib/utils";
 import { DEFAULT_APP_TITLE } from "./lib/app-meta.mjs";
 import { clearChatSession } from "./lib/chat-session.mjs";
+
+// Shortcuts into the admin portal (its tabs are addressed by hash). Group managers see the two
+// pages they may open. The shared-password administrator (SHARED_PASSWORD_ADMIN) sees them all.
+const ADMIN_LINKS = [
+  { tab: "users", label: "adminPeople", icon: Users, managers: true },
+  { tab: "conversations", label: "adminConversations", icon: MessageSquare },
+  { tab: "questions", label: "adminQuestions", icon: ChartColumn, managers: true },
+  { tab: "models", label: "adminModels", icon: Sparkles },
+  { tab: "activity", label: "adminActivity", icon: History },
+];
 
 const ChatPanel = dynamic(() => import("@/components/chat-panel"), { ssr: false });
 
@@ -102,6 +113,10 @@ const COPY = {
   requiredPassword: "Enter the password to continue.",
   devPasswordLead: "Local development password:",
   accountsBody: "Sign in with your username and password.",
+  signInWith: "How you sign in",
+  personalAccount: "Personal account",
+  sharedPasswordOption: "Shared password",
+  sharedPasswordBody: "Administrators sign in with the shared password.",
   username: "Username",
   requiredCredentials: "Enter your username and password.",
   invalidCredentials: "That username and password were not accepted.",
@@ -110,6 +125,11 @@ const COPY = {
   ssoWith: "Continue with {label}",
   ssoFailed: "Single sign-on did not complete. Try again or contact your administrator.",
   admin: "Admin",
+  adminPeople: "People and access",
+  adminQuestions: "Questions asked",
+  adminConversations: "Conversations and SQL",
+  adminModels: "AI models",
+  adminActivity: "Activity log",
   signedInAs: "Signed in as {name}",
   dives: "Dives",
   chooseDive: "Choose a Dive.",
@@ -225,6 +245,27 @@ function request(url, options = {}) {
   return api(url, { signal: AbortSignal.timeout(20000), ...options });
 }
 
+// The part of the screen the viewer can see. On iOS the on-screen keyboard covers the page without
+// resizing it, so a full-height sheet would hide its composer under the keyboard and could scroll
+// its header off the top; window.visualViewport reports the visible part. Null while inactive,
+// where the browser has no visualViewport, or while the viewer has pinch-zoomed.
+function useVisibleViewport(active) {
+  const [box, setBox] = React.useState(null);
+  React.useEffect(() => {
+    const viewport = window.visualViewport;
+    if (!active || !viewport) { setBox(null); return undefined; }
+    const update = () => setBox(Math.abs(viewport.scale - 1) > 0.01 ? null : { top: Math.round(viewport.offsetTop), height: Math.round(viewport.height) });
+    update();
+    viewport.addEventListener("resize", update);
+    viewport.addEventListener("scroll", update);
+    return () => {
+      viewport.removeEventListener("resize", update);
+      viewport.removeEventListener("scroll", update);
+    };
+  }, [active]);
+  return box;
+}
+
 function IconTip({ label, children }) {
   return (
     <Tooltip>
@@ -256,8 +297,15 @@ function takeSsoFailure() {
 }
 let ssoFailed = takeSsoFailure();
 
-function LoginView({ appTitle, devPassword, mode, sso = [], demo, theme, setTheme, onSubmit, onSso }) {
-  const accounts = mode === "accounts";
+// sharedPassword (SHARED_PASSWORD_ADMIN): a switch chooses the sign-in. "Personal account" (the
+// default) asks for a username and password; "Shared password" asks for the administrator password
+// only. A password is never sent to the other kind by accident. The browser remembers the last
+// choice, so a presenter's browser opens on "Shared password".
+const SIGN_IN_KIND = "dive_app_sign_in_kind";
+function LoginView({ appTitle, devPassword, mode, sharedPassword = false, sso = [], demo, theme, setTheme, onSubmit, onSso }) {
+  const [kind, setKind] = React.useState(() => (sharedPassword && readStored(SIGN_IN_KIND, "personal") === "shared" ? "shared" : "personal"));
+  const accounts = mode === "accounts" && kind === "personal";
+  const choose = (next) => { setKind(next); writeStored(SIGN_IN_KIND, next); setPassword(""); setState({ busy: false, error: "" }); };
   const [username, setUsername] = React.useState("");
   const [password, setPassword] = React.useState("");
   const [visible, setVisible] = React.useState(false);
@@ -302,20 +350,28 @@ function LoginView({ appTitle, devPassword, mode, sso = [], demo, theme, setThem
         <Card className="login-card">
           <CardHeader>
             <CardTitle id="auth-title" className="login-title">{COPY.signInTitle}</CardTitle>
-            <CardDescription>{accounts ? COPY.accountsBody : COPY.signInBody}</CardDescription>
+            <CardDescription>{accounts ? COPY.accountsBody : sharedPassword ? COPY.sharedPasswordBody : COPY.signInBody}</CardDescription>
           </CardHeader>
           <CardContent>
             <form className="login-form" onSubmit={submit} noValidate aria-labelledby="auth-title">
+              {sharedPassword && (
+                <div className="login-kind" role="group" aria-label={COPY.signInWith}>
+                  {[["personal", COPY.personalAccount], ["shared", COPY.sharedPasswordOption]].map(([key, label]) => (
+                    <button key={key} type="button" aria-pressed={kind === key} disabled={state.busy} onClick={() => choose(key)}>{label}</button>
+                  ))}
+                </div>
+              )}
               {accounts && (
                 <div className="login-field">
                   <Label htmlFor="username-input">{COPY.username}</Label>
-                  <Input id="username-input" value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" autoCapitalize="none" spellCheck={false} autoFocus aria-invalid={Boolean(state.error)} aria-describedby="auth-status" disabled={state.busy} />
+                  <Input key={kind} id="username-input" value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" autoCapitalize="none" spellCheck={false} autoFocus aria-invalid={Boolean(state.error)} aria-describedby="auth-status" disabled={state.busy} />
                 </div>
               )}
               <div className="login-field">
                 <Label htmlFor="password-input">{COPY.password}</Label>
                 <InputGroup className="login-input">
                   <InputGroupInput
+                    key={kind}
                     id="password-input"
                     type={visible ? "text" : "password"}
                     value={password}
@@ -516,14 +572,24 @@ function DiveSidebar({ dives, selectedKey, onSelect, onSignOut, user, demo }) {
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
+        {/* Administrators and group managers reach each part of the admin portal in one click. */}
+        {(user?.isAdmin || user?.canManage) && (
+          <SidebarGroup className="admin-nav-group">
+            <SidebarGroupLabel>{COPY.admin}</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {(user.isAdmin ? ADMIN_LINKS : ADMIN_LINKS.filter(link => link.managers)).map(({ tab, label, icon: Icon }) => (
+                  <SidebarMenuItem key={tab}>
+                    <SidebarMenuButton className="admin-menu-button" render={<a href={`/admin#${tab}`} />}><Icon aria-hidden="true" /><span>{COPY[label]}</span></SidebarMenuButton>
+                  </SidebarMenuItem>
+                ))}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
       </SidebarContent>
       <SidebarFooter className="sidebar-footer">
         <SidebarMenu>
-          {(user?.isAdmin || user?.canManage) && (
-            <SidebarMenuItem>
-              <SidebarMenuButton className="sign-out-button" render={<a href="/admin" />}><ShieldCheck aria-hidden="true" /><span>{COPY.admin}</span></SidebarMenuButton>
-            </SidebarMenuItem>
-          )}
           {user?.mode === "accounts" && !demo && (
             <SidebarMenuItem>
               <SidebarMenuButton className="sign-out-button" onClick={() => { if (isMobile) setOpenMobile(false); setPasswordOpen(true); }}><KeyRound aria-hidden="true" /><span>{COPY.changePassword}</span></SidebarMenuButton>
@@ -864,11 +930,8 @@ function MainContent({ appTitle, theme, setTheme, dive, dives, onSelectDive, onS
           <MessageSquare data-icon="inline-start" aria-hidden="true" />{COPY.chat}
         </Button>
         <ThemeButton theme={theme} setTheme={setTheme} />
-        {isMobile && (
-          <Button variant="ghost" size="icon-sm" onClick={onSignOut} aria-label={COPY.signOut} title={COPY.signOut}>
-            <LogOut aria-hidden="true" />
-          </Button>
-        )}
+        {/* On a phone, Sign out sits in the drawer's footer, so the top bar keeps room for 44px
+            controls and the Dive's name. */}
       </div>
     </header>
   );
@@ -881,10 +944,12 @@ function MainContent({ appTitle, theme, setTheme, dive, dives, onSelectDive, onS
     </div>
   );
 
+  const visible = useVisibleViewport(chatOpen && !wideChat);
   const chat = <ChatPanel dive={dive} state={diveState} ready={frameStatus === "ready"} frameStatus={frameStatus} onClose={() => setChatOpen(false)} />;
+  // Width comes from .chat-sheet: the whole screen on a phone, a 420px panel on a tablet.
   const chatSheet = (
     <Sheet open={chatOpen && !wideChat} onOpenChange={setChatOpen}>
-      <SheetContent showCloseButton={false} className="chat-sheet" style={{ width: "min(100%,420px)", maxWidth: "100%", gap: 0 }}>
+      <SheetContent showCloseButton={false} className="chat-sheet" style={visible ? { top: visible.top, bottom: "auto", height: visible.height } : undefined}>
         <SheetHeader className="sr-only">
           <SheetTitle>{COPY.chat}</SheetTitle>
           <SheetDescription>{COPY.chatAbout}</SheetDescription>
@@ -947,7 +1012,7 @@ export default function App() {
   const theme = storedTheme === "dark" ? "dark" : "light";
   const [diveKey, setDiveKey] = useStoredPreference("dive_app_dive", "");
   const [setupToken, setSetupToken] = React.useState(SETUP_TOKEN);
-  const [auth, setAuth] = React.useState({ state: "checking", appTitle: COPY.defaultTitle, devPassword: "", mode: "password", sso: [], user: null, demo: { on: false, signInUrl: "" } });
+  const [auth, setAuth] = React.useState({ state: "checking", appTitle: COPY.defaultTitle, devPassword: "", mode: "password", sharedPassword: false, sso: [], user: null, demo: { on: false, signInUrl: "" } });
   const [dives, setDives] = React.useState([]);
   const [divesState, setDivesState] = React.useState("loading");
 
@@ -980,6 +1045,8 @@ export default function App() {
         appTitle: typeof data?.appTitle === "string" && data.appTitle ? data.appTitle : COPY.defaultTitle,
         devPassword: typeof data?.devPassword === "string" ? data.devPassword : "",
         mode: data?.mode === "accounts" ? "accounts" : "password",
+        // SHARED_PASSWORD_ADMIN: accounts, plus the shared password as the administrator sign-in.
+        sharedPassword: data?.mode === "accounts" && data?.sharedPassword === true,
         sso: Array.isArray(data?.sso) ? data.sso : [],
         user: data?.user || null,
         demo: { on: data?.publicDemo === true, signInUrl: typeof data?.demoSignInUrl === "string" && data.demoSignInUrl.startsWith("https://") ? data.demoSignInUrl : "" },
@@ -994,7 +1061,7 @@ export default function App() {
   React.useEffect(() => { refreshAuth(); }, [refreshAuth]);
 
   const submitLogin = async ({ username, password }) => {
-    if (auth.mode === "accounts") {
+    if (auth.mode === "accounts" && (username || !auth.sharedPassword)) {
       try {
         const { authClient } = await import("./lib/auth-client.js");
         const { error } = await authClient.signIn.username({ username, password });
@@ -1008,6 +1075,8 @@ export default function App() {
     try {
       const data = await request("/api/auth", { method: "POST", body: JSON.stringify({ password }) });
       if (data?.authenticated !== true) return { ok: false, error: "unavailable" };
+      // The shared administrator's sidebar needs the signed-in user, which only GET /api/auth reports.
+      if (auth.sharedPassword) { await refreshAuth(); return { ok: true }; }
       setAuth((current) => ({ ...current, state: "authenticated" }));
       await loadDives();
       return { ok: true };
@@ -1024,7 +1093,8 @@ export default function App() {
 
   const signOut = async () => {
     try {
-      if (auth.mode === "accounts") {
+      // With the shared password as well, DELETE /api/auth ends both sign-ins.
+      if (auth.mode === "accounts" && !auth.sharedPassword) {
         const { authClient } = await import("./lib/auth-client.js");
         const { error } = await authClient.signOut();
         if (error) throw new Error("logout-failed");
@@ -1043,7 +1113,7 @@ export default function App() {
 
   if (setupToken && auth.state !== "checking" && auth.mode === "accounts") return <SetupPasswordView appTitle={auth.appTitle} token={setupToken} theme={theme} setTheme={setTheme} onDone={() => { setSetupToken(""); refreshAuth(); }} />;
   if (auth.state === "checking") return <div className="boot-screen"><Spinner className="size-5" /><span>{COPY.loading}</span></div>;
-  if (auth.state === "unauthenticated") return <LoginView appTitle={auth.appTitle} devPassword={auth.devPassword} mode={auth.mode} sso={auth.sso} demo={auth.demo} theme={theme} setTheme={setTheme} onSubmit={submitLogin} onSso={signInWithSso} />;
+  if (auth.state === "unauthenticated") return <LoginView appTitle={auth.appTitle} devPassword={auth.devPassword} mode={auth.mode} sharedPassword={auth.sharedPassword} sso={auth.sso} demo={auth.demo} theme={theme} setTheme={setTheme} onSubmit={submitLogin} onSso={signInWithSso} />;
   if (divesState === "loading") return <div className="boot-screen"><Spinner className="size-5" /><span>{COPY.loadDives}</span></div>;
   if (divesState === "error" || dives.length === 0) {
     return (

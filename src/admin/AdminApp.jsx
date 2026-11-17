@@ -95,6 +95,10 @@ const COPY = {
     sync_failed: "the sync failed. See the server log",
     automatic_mode: "the app syncs by itself, so there is nothing to mark",
     demo_read_only: "this is not available in a public demo",
+    invalid_role: "choose administrator or viewer",
+    invalid_password: "passwords need 12 to 256 characters",
+    not_available_for_shared_password: "sign in with a personal administrator account to do this",
+    motherduck_off_with_shared_password: "MotherDuck usernames, service accounts and groups with one are off while the shared password signs in administrators",
     conversations_unavailable: "the app database did not answer. Try again",
     topics_need_model: "grouping into topics needs an AI model to be configured",
     topics_failed: "the AI model could not group the questions. Try again",
@@ -139,6 +143,24 @@ const COPY = {
   question: "Question",
   answer: "Answer",
   routed: "Routing",
+  conversationsTitle: "Conversations and SQL",
+  conversationsBody: "Each saved question, the answer it got and each SQL statement the assistant sent to MotherDuck to produce it, with when it ran, how long it took and how many rows came back. Result rows are never stored.",
+  queriesSent: "SQL sent to MotherDuck ({count})",
+  queriesTotal: "{ms} ms in all",
+  queriesDropped: ["1 more statement was not saved.", "{n} more statements were not saved."],
+  queryNumber: "Statement {n}",
+  queryResult: ["1 row", "{n} rows"],
+  queryMs: "{ms} ms",
+  queryFailed: "Failed: {error}",
+  queryNotSent: "Not sent: {error}",
+  queryTool: "Tool:",
+  queryUnbound: "Saved before the exact text was recorded. These values replaced the placeholders: {values}",
+  queryValues: "Values: {values}",
+  queryTruncated: "Too long to keep in full: only the start of this statement was saved.",
+  copySql: "Copy SQL",
+  copySqlStart: "Copy saved start",
+  showSql: "Show all SQL",
+  hideSql: "Hide all SQL",
   tokens: "{input} in · {output} out tokens",
   seconds: "{s}s",
   tool: { getDiveState: "Read the Dive state", listTables: "Listed tables", describeTable: "Described a table", runQuery: "Ran a query" },
@@ -193,7 +215,8 @@ const COPY = {
   tileSpeedDetail: "median · {tokens} tokens in total",
   perDay: "Questions per day (UTC)",
   dayReadout: "{day}: {questions} · {attention} needing attention",
-  periodReadout: "{questions} in this period · {attention} needing attention. Hover a day for its numbers.",
+  periodReadout: "{questions} in this period · {attention} needing attention. Tap or hover a day for its numbers.",
+  chartKeys: "Questions per day. The left and right arrow keys show one day at a time.",
   questionCount: ["1 question", "{n} questions"],
   byDive: "By Dive",
   byGroup: "By group",
@@ -282,6 +305,16 @@ const COPY = {
   chatOff: "no AI chat",
 };
 const dateTime = value => (value ? new Date(value).toLocaleString() : "");
+// Small buttons grow to a 40px tap target on a phone or touch screen.
+const TAP = "max-md:h-10 pointer-coarse:h-10";
+// The viewer's local time with seconds, and the date too when it is not today. Hovering shows the UTC time.
+function When({ value, className = "" }) {
+  const date = value ? new Date(value) : null;
+  if (!date || Number.isNaN(date.getTime())) return null;
+  const today = date.toDateString() === new Date().toDateString();
+  const text = today ? date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "medium" });
+  return <time dateTime={date.toISOString()} title={date.toISOString()} className={`tabular-nums ${className}`}>{text}</time>;
+}
 const select = "h-9 rounded-md border border-input bg-background px-2 text-sm";
 
 // A server error code in words, for "That did not work: …".
@@ -313,7 +346,7 @@ function WriteButton({ disabled, onClick, type, className, ...props }) {
 
 function DemoToast({ message }) {
   return (
-    <div role="status" aria-live="polite" className="pointer-events-none fixed inset-x-0 bottom-4 z-50 flex justify-center px-4">
+    <div role="status" aria-live="polite" className="pointer-events-none fixed inset-x-0 bottom-[max(1rem,env(safe-area-inset-bottom))] z-50 flex justify-center pr-[max(1rem,env(safe-area-inset-right))] pl-[max(1rem,env(safe-area-inset-left))]">
       {message && <p className="rounded-md border border-border bg-popover px-3 py-2 text-sm text-popover-foreground shadow-md">{message}</p>}
     </div>
   );
@@ -324,12 +357,12 @@ function Notice({ message, tone = "muted" }) {
   return <p role={tone === "error" ? "alert" : "status"} className={tone === "error" ? "text-sm text-destructive" : "text-sm text-muted-foreground"}>{message}</p>;
 }
 
-function CopyButton({ text, label = COPY.copy, size = "sm", variant = "outline" }) {
+function CopyButton({ text, label = COPY.copy, size = "sm", variant = "outline", className, "aria-label": ariaLabel }) {
   const [done, setDone] = React.useState(false);
   const copy = async () => {
     try { await navigator.clipboard.writeText(text); setDone(true); window.setTimeout(() => setDone(false), 1500); } catch { /* the text stays selectable */ }
   };
-  return <Button type="button" size={size} variant={variant} onClick={copy}>{done ? <Check data-icon="inline-start" aria-hidden="true" /> : <Copy data-icon="inline-start" aria-hidden="true" />}{done ? COPY.copied : label}</Button>;
+  return <Button type="button" size={size} variant={variant} className={className} aria-label={ariaLabel && (done ? COPY.copied : ariaLabel)} onClick={copy}>{done ? <Check data-icon="inline-start" aria-hidden="true" /> : <Copy data-icon="inline-start" aria-hidden="true" />}{done ? COPY.copied : label}</Button>;
 }
 
 function AccessEditor({ dives, value, onChange, legend = COPY.access }) {
@@ -399,7 +432,7 @@ function CreatedPeople({ results, onClose }) {
   );
 }
 
-function AddPeople({ dives, groups, scope, maxImport = 200, onCreated }) {
+function AddPeople({ dives, groups, scope, maxImport = 200, mdGrants = true, onCreated }) {
   const admin = scope === "admin";
   const firstGroup = admin ? "" : groups[0]?.id || "";
   const blank = { mode: "one", username: "", name: "", email: "", motherduckUser: "", delivery: "link", password: "", list: "", role: "user", groupId: firstGroup, manager: false, access: firstGroup ? { dives: [], chat: false } : { dives: "*", chat: true } };
@@ -441,7 +474,7 @@ function AddPeople({ dives, groups, scope, maxImport = 200, onCreated }) {
               <div className="grid gap-1.5"><Label htmlFor="new-username">{COPY.username}</Label><Input id="new-username" value={form.username} onChange={e => set("username", e.target.value)} autoComplete="off" autoCapitalize="none" spellCheck={false} required /></div>
               <div className="grid gap-1.5"><Label htmlFor="new-name">{COPY.name}</Label><Input id="new-name" value={form.name} onChange={e => set("name", e.target.value)} autoComplete="off" /></div>
               <div className="grid gap-1.5"><Label htmlFor="new-email">{COPY.email}</Label><Input id="new-email" type="email" value={form.email} onChange={e => set("email", e.target.value)} autoComplete="off" /></div>
-              {admin && <div className="grid gap-1.5"><Label htmlFor="new-md-user">{COPY.motherduckUser}</Label><Input id="new-md-user" value={form.motherduckUser} onChange={e => set("motherduckUser", e.target.value)} autoComplete="off" autoCapitalize="none" spellCheck={false} /><span className="text-xs text-muted-foreground">{COPY.motherduckUserHint}</span></div>}
+              {admin && mdGrants && <div className="grid gap-1.5"><Label htmlFor="new-md-user">{COPY.motherduckUser}</Label><Input id="new-md-user" value={form.motherduckUser} onChange={e => set("motherduckUser", e.target.value)} autoComplete="off" autoCapitalize="none" spellCheck={false} /><span className="text-xs text-muted-foreground">{COPY.motherduckUserHint}</span></div>}
               <fieldset className="grid gap-2 text-sm md:col-span-2">
                 <legend className="mb-1 text-sm font-medium">{COPY.delivery}</legend>
                 <label className="flex items-center gap-2"><input type="radio" name="delivery" checked={form.delivery === "link"} onChange={() => set("delivery", "link")} />{COPY.deliveryLink}</label>
@@ -507,7 +540,7 @@ function syncBadge(user, grants, groups) {
   return <Badge variant="outline">{COPY.mdSynced}</Badge>;
 }
 
-function UserRow({ user, dives, groups, grants, scope, self, onChanged }) {
+function UserRow({ user, dives, groups, grants, scope, self, mdGrants = true, onChanged }) {
   const admin = scope === "admin";
   const { reason, explain } = React.useContext(ReadOnly);
   const [mode, setMode] = React.useState(null);
@@ -543,14 +576,14 @@ function UserRow({ user, dives, groups, grants, scope, self, onChanged }) {
   return (
     <li className="grid gap-3 border-b border-border py-3 last:border-b-0">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        <span className="font-medium">{name}</span>
+        <span className="min-w-0 font-medium [overflow-wrap:anywhere]">{name}</span>
         <span className="text-sm text-muted-foreground">{user.name}</span>
         <Badge variant={isAdmin ? "default" : "secondary"}>{isAdmin ? COPY.roles.admin : COPY.roles.user}</Badge>
         {user.banned && <Badge variant="destructive">{COPY.banned}</Badge>}
         {user.sso && <Badge variant="outline">{COPY.sso}</Badge>}
         {memberships.map(item => <Badge key={item.id} variant="outline">{item.group.name}{item.manager ? ` · ${COPY.manager}` : ""}</Badge>)}
-        {admin && syncBadge(user, grants, groups)}
-        {admin && <span className="text-xs text-muted-foreground">{diveSummary(dives, effective)} · {COPY.chat} {effective.chat ? "✓" : "✗"}{user.motherduckUser ? ` · ${user.motherduckUser}` : ""}</span>}
+        {admin && mdGrants && syncBadge(user, grants, groups)}
+        {admin && <span className="min-w-0 text-xs text-muted-foreground [overflow-wrap:anywhere]">{diveSummary(dives, effective)} · {COPY.chat} {effective.chat ? "✓" : "✗"}{mdGrants && user.motherduckUser ? ` · ${user.motherduckUser}` : ""}</span>}
         <span className="text-xs text-muted-foreground">{[invite, user.lastSignInAt ? fill(COPY.lastSignIn, { date: dateTime(user.lastSignInAt) }) : !invite ? COPY.neverSignedIn : ""].filter(Boolean).join(" · ")}</span>
         {canAct && (
           <span className="ml-auto flex flex-wrap gap-1">
@@ -591,8 +624,8 @@ function UserRow({ user, dives, groups, grants, scope, self, onChanged }) {
             <AccessEditor dives={dives} value={access} onChange={setAccess} />
             {memberships.length > 0 && !dataGroup && <span className="text-xs text-muted-foreground">{fill(COPY.fromGroups, { groups: memberships.map(item => `${item.group.name} (${diveSummary(dives, item.group)})`).join(", ") })}</span>}
           </div>
-          <div className="grid content-start gap-1.5"><Label htmlFor={`md-${user.id}`}>{COPY.motherduckUser}</Label><Input id={`md-${user.id}`} value={mdUser} onChange={e => setMdUser(e.target.value)} autoComplete="off" autoCapitalize="none" spellCheck={false} /><span className="text-xs text-muted-foreground">{COPY.motherduckUserHint}</span></div>
-          <div className="flex gap-2 md:col-span-2"><WriteButton size="sm" disabled={state.busy} onClick={() => (reason ? explain() : run(() => saveAccess(user.id, { ...access, motherduckUser: mdUser.trim() })))}>{COPY.save}</WriteButton><Button size="sm" variant="ghost" onClick={() => { setAccess(accessOf(user)); setMdUser(user.motherduckUser || ""); setMode(null); }}>{COPY.cancel}</Button></div>
+          {mdGrants && <div className="grid content-start gap-1.5"><Label htmlFor={`md-${user.id}`}>{COPY.motherduckUser}</Label><Input id={`md-${user.id}`} value={mdUser} onChange={e => setMdUser(e.target.value)} autoComplete="off" autoCapitalize="none" spellCheck={false} /><span className="text-xs text-muted-foreground">{COPY.motherduckUserHint}</span></div>}
+          <div className="flex gap-2 md:col-span-2"><WriteButton size="sm" disabled={state.busy} onClick={() => (reason ? explain() : run(() => saveAccess(user.id, mdGrants ? { ...access, motherduckUser: mdUser.trim() } : access)))}>{COPY.save}</WriteButton><Button size="sm" variant="ghost" onClick={() => { setAccess(accessOf(user)); setMdUser(user.motherduckUser || ""); setMode(null); }}>{COPY.cancel}</Button></div>
         </div>
       )}
       <Notice message={state.message} tone={state.tone} />
@@ -617,19 +650,19 @@ function UsersTab({ data, grants, reload, loading }) {
           <CardContent><ul className="grid gap-1 text-sm">{data.groups.map(group => <li key={group.id}>{fill(COPY.managerGroupAccess, { group: group.name, dives: diveSummary(data.dives, group), chat: group.chatReady ? COPY.chatOn : COPY.chatOff })}</li>)}</ul></CardContent>
         </Card>
       )}
-      <AddPeople dives={data.dives} groups={data.groups} scope={data.scope} maxImport={data.maxImport} onCreated={reload} />
+      <AddPeople dives={data.dives} groups={data.groups} scope={data.scope} maxImport={data.maxImport} mdGrants={data.mdGrants !== false} onCreated={reload} />
       <Card>
         <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2">
           <CardTitle role="heading" aria-level={2}>{COPY.users}</CardTitle>
           <div className="flex flex-wrap items-center gap-2">
-            <div className="relative"><Search className="absolute left-2 top-2.5 size-4 text-muted-foreground" aria-hidden="true" /><Input type="search" className="h-9 w-48 pl-8" aria-label={COPY.filterPeople} placeholder={COPY.filterPeople} value={filter} onChange={e => setFilter(e.target.value)} /></div>
+            <div className="relative"><Search className="absolute left-2 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" /><Input type="search" className="h-9 w-48 pl-8" aria-label={COPY.filterPeople} placeholder={COPY.filterPeople} value={filter} onChange={e => setFilter(e.target.value)} /></div>
             <Button size="sm" variant="ghost" onClick={exportCsv} disabled={!data.users.length}><Download data-icon="inline-start" aria-hidden="true" />{COPY.exportPeople}</Button>
             <Button size="sm" variant="ghost" onClick={reload} disabled={loading}><RefreshCw data-icon="inline-start" aria-hidden="true" />{COPY.refresh}</Button>
           </div>
         </CardHeader>
         <CardContent className="grid gap-2">
           {data.truncated && <Notice message={fill(COPY.truncated, { max: data.users.length })} />}
-          {users.length ? <ul className="grid">{users.map(user => <UserRow key={`${user.id}:${user.updatedAt}:${user.banned}:${(user.groups || []).length}`} user={user} dives={data.dives} groups={data.groups} grants={grants} scope={data.scope} self={user.id === data.me} onChanged={reload} />)}</ul> : <p className="text-sm text-muted-foreground">{COPY.noUsers}</p>}
+          {users.length ? <ul className="grid">{users.map(user => <UserRow key={`${user.id}:${user.updatedAt}:${user.banned}:${(user.groups || []).length}`} user={user} dives={data.dives} groups={data.groups} grants={grants} scope={data.scope} self={user.id === data.me} mdGrants={data.mdGrants !== false} onChanged={reload} />)}</ul> : <p className="text-sm text-muted-foreground">{COPY.noUsers}</p>}
         </CardContent>
       </Card>
     </div>
@@ -662,8 +695,10 @@ function ResourceEditor({ dives, value, onChange }) {
   );
 }
 
-function GroupForm({ dives, group, mdAutomatic, notice = "", onSaved, onCancel }) {
-  const [form, setForm] = React.useState(() => ({ name: group?.name || "", description: group?.description || "", access: group ? { dives: group.dives, chat: group.chat } : { dives: [], chat: true }, serviceAccount: group?.serviceAccount || "", resources: group?.resources || {}, createAccount: true, cap: group?.monthlyTokenCap ? String(group.monthlyTokenCap) : "" }));
+// mdGrants false (SHARED_PASSWORD_ADMIN): no MotherDuck service accounts, so the field is hidden and
+// a group saved here has none.
+function GroupForm({ dives, group, mdAutomatic, mdGrants = true, notice = "", onSaved, onCancel }) {
+  const [form, setForm] = React.useState(() => ({ name: group?.name || "", description: group?.description || "", access: group ? { dives: group.dives, chat: group.chat } : { dives: [], chat: true }, serviceAccount: mdGrants ? group?.serviceAccount || "" : "", resources: group?.resources || {}, createAccount: true, cap: group?.monthlyTokenCap ? String(group.monthlyTokenCap) : "" }));
   const [state, setState] = React.useState({ busy: false, message: notice, tone: "error" });
   const { reason, explain } = React.useContext(ReadOnly);
   const set = (key, value) => setForm(current => ({ ...current, [key]: value }));
@@ -713,7 +748,7 @@ function GroupForm({ dives, group, mdAutomatic, notice = "", onSaved, onCancel }
         <Input id="group-cap" className="max-w-48 tabular-nums" inputMode="numeric" value={form.cap} onChange={e => set("cap", e.target.value)} placeholder="1000000" aria-describedby="group-cap-hint" aria-invalid={Boolean(cap) && (!/^\d+$/.test(cap) || Number(cap) < 1000) || undefined} />
         <span id="group-cap-hint" className="text-xs text-muted-foreground">{COPY.allowanceHint}</span>
       </div>
-      <div className="grid content-start gap-1.5">
+      {mdGrants && <div className="grid content-start gap-1.5">
         <Label htmlFor="group-sa">{COPY.serviceAccount}</Label>
         <div className="flex flex-wrap gap-2">
           <Input id="group-sa" className="min-w-48 flex-1 font-mono text-xs" value={form.serviceAccount} onChange={e => set("serviceAccount", e.target.value.toLowerCase())} autoComplete="off" autoCapitalize="none" spellCheck={false} />
@@ -721,7 +756,7 @@ function GroupForm({ dives, group, mdAutomatic, notice = "", onSaved, onCancel }
         </div>
         <span className="text-xs text-muted-foreground">{COPY.serviceAccountHint}</span>
         {mdAutomatic && form.serviceAccount.trim() && form.serviceAccount.trim() !== group?.serviceAccount && <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={form.createAccount} onChange={() => set("createAccount", !form.createAccount)} />{COPY.createServiceAccountNow}</label>}
-      </div>
+      </div>}
       {form.serviceAccount.trim() && granted.length > 0 && <ResourceEditor dives={granted} value={form.resources} onChange={resources => set("resources", resources)} />}
       <div className="flex items-center gap-2 md:col-span-2">
         <WriteButton type="submit" size="sm" disabled={state.busy || !form.name.trim() || (Boolean(cap) && (!/^\d+$/.test(cap) || Number(cap) < 1000))}>{state.busy ? <Spinner data-icon="inline-start" /> : null}{COPY.save}</WriteButton>
@@ -785,6 +820,7 @@ function GroupMembers({ group, users, onChanged }) {
 }
 
 function GroupsTab({ data, mdAutomatic, reload }) {
+  const mdGrants = data.mdGrants !== false;
   const [editing, setEditing] = React.useState(null);
   const [confirming, setConfirming] = React.useState(null);
   const [message, setMessage] = React.useState("");
@@ -807,7 +843,7 @@ function GroupsTab({ data, mdAutomatic, reload }) {
           <div className="grid max-w-3xl gap-1.5"><CardTitle role="heading" aria-level={2}>{COPY.groups}</CardTitle><CardDescription>{COPY.groupsBody}</CardDescription></div>
           {editing !== "new" && <Button size="sm" onClick={() => edit("new")}><Plus data-icon="inline-start" aria-hidden="true" />{COPY.newGroup}</Button>}
         </CardHeader>
-        {editing === "new" && <CardContent><GroupForm dives={data.dives} mdAutomatic={mdAutomatic} onSaved={saved} onCancel={() => edit(null)} /></CardContent>}
+        {editing === "new" && <CardContent><GroupForm dives={data.dives} mdAutomatic={mdAutomatic} mdGrants={mdGrants} onSaved={saved} onCancel={() => edit(null)} /></CardContent>}
       </Card>
       <Notice message={message} tone="error" />
       {!data.groups.length && <p className="text-sm text-muted-foreground">{COPY.noGroups}</p>}
@@ -838,7 +874,7 @@ function GroupsTab({ data, mdAutomatic, reload }) {
             )}
           </CardHeader>
           <CardContent className="grid gap-4">
-            {editing === group.id && <GroupForm dives={data.dives} group={group} mdAutomatic={mdAutomatic} notice={notice} onSaved={saved} onCancel={() => edit(null)} />}
+            {editing === group.id && <GroupForm dives={data.dives} group={group} mdAutomatic={mdAutomatic} mdGrants={mdGrants} notice={notice} onSaved={saved} onCancel={() => edit(null)} />}
             <GroupMembers group={group} users={data.users} onChanged={reload} />
           </CardContent>
         </Card>
@@ -874,28 +910,44 @@ function AccessSyncTab({ status, reload }) {
           <p className="text-sm">{fill(COPY.totals, status.totals)}</p>
           <Notice message={state.message} tone="error" />
           {status.grants.length ? (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead className="text-xs text-muted-foreground"><tr><th className="py-1 pr-3 font-medium">{COPY.grantee}</th><th className="py-1 pr-3 font-medium">{COPY.share}</th><th className="py-1 pr-3 font-medium">{COPY.alias}</th><th className="py-1 font-medium">{COPY.state}</th></tr></thead>
-                <tbody>
-                  {status.grants.map(row => (
-                    <tr key={`${row.grantee}:${row.url}`} className="border-t border-border align-top">
-                      <td className="py-2 pr-3"><span className="font-medium">{row.grantee}</span><br /><span className="text-xs text-muted-foreground">{COPY.kinds[row.kind] || row.kind}</span></td>
-                      <td className="py-2 pr-3"><span className="font-mono text-xs">{row.share || row.url}</span></td>
-                      <td className="py-2 pr-3 font-mono text-xs">{row.alias}</td>
-                      <td className="py-2"><Badge variant={row.state === "failed" ? "destructive" : "outline"}>{COPY.states[row.state] || row.state}</Badge>{row.detail && !["pending", "removing"].includes(row.state) && <p className="mt-1 max-w-md text-xs text-muted-foreground">{row.detail}</p>}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            // Below tablet width each grant is a labelled list (dl) instead of a wide table, so screen
+            // readers get real labels and values; the table shows from tablet width up.
+            <>
+              <ul className="grid md:hidden">
+                {status.grants.map(row => (
+                  <li key={`${row.grantee}:${row.url}`} className="grid gap-1 border-t border-border py-2 text-sm [overflow-wrap:anywhere]">
+                    <span><span className="font-medium">{row.grantee}</span> <span className="text-xs text-muted-foreground">· {COPY.kinds[row.kind] || row.kind}</span></span>
+                    <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-2 gap-y-0.5 text-xs">
+                      <dt className="text-muted-foreground">{COPY.share}</dt><dd className="font-mono">{row.share || row.url}</dd>
+                      {row.alias && <><dt className="text-muted-foreground">{COPY.alias}</dt><dd className="font-mono">{row.alias}</dd></>}
+                      <dt className="sr-only">{COPY.state}</dt><dd className="col-span-2 mt-1"><Badge variant={row.state === "failed" ? "destructive" : "outline"}>{COPY.states[row.state] || row.state}</Badge>{row.detail && !["pending", "removing"].includes(row.state) && <p className="mt-1 text-muted-foreground">{row.detail}</p>}</dd>
+                    </dl>
+                  </li>
+                ))}
+              </ul>
+              <div className="overflow-x-auto max-md:hidden">
+                <table className="w-full text-left text-sm">
+                  <thead className="text-xs text-muted-foreground"><tr><th className="py-1 pr-3 font-medium">{COPY.grantee}</th><th className="py-1 pr-3 font-medium">{COPY.share}</th><th className="py-1 pr-3 font-medium">{COPY.alias}</th><th className="py-1 font-medium">{COPY.state}</th></tr></thead>
+                  <tbody>
+                    {status.grants.map(row => (
+                      <tr key={`${row.grantee}:${row.url}`} className="border-t border-border align-top">
+                        <td className="py-2 pr-3"><span className="font-medium">{row.grantee}</span><br /><span className="text-xs text-muted-foreground">{COPY.kinds[row.kind] || row.kind}</span></td>
+                        <td className="py-2 pr-3"><span className="font-mono text-xs">{row.share || row.url}</span></td>
+                        <td className="py-2 pr-3 font-mono text-xs">{row.alias}</td>
+                        <td className="py-2"><Badge variant={row.state === "failed" ? "destructive" : "outline"}>{COPY.states[row.state] || row.state}</Badge>{row.detail && !["pending", "removing"].includes(row.state) && <p className="mt-1 max-w-md text-xs text-muted-foreground">{row.detail}</p>}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
           ) : <p className="text-sm text-muted-foreground">{COPY.noGrants}</p>}
         </CardContent>
       </Card>
       {status.sql && (
         <Card>
           <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2"><CardTitle role="heading" aria-level={2}>{COPY.sqlTitle}</CardTitle><span className="flex gap-1"><CopyButton text={status.sql} />{status.mode === "manual" && <WriteButton size="sm" variant="outline" disabled={state.busy} onClick={() => post({ confirm: status.planned || [] })}><CheckCheck data-icon="inline-start" aria-hidden="true" />{COPY.markDone}</WriteButton>}</span></CardHeader>
-          <CardContent className="grid gap-2">{status.mode === "manual" && <p className="text-xs text-muted-foreground">{COPY.markDoneHint}</p>}<pre className="overflow-x-auto whitespace-pre-wrap rounded-md bg-muted p-3 font-mono text-xs">{status.sql}</pre></CardContent>
+          <CardContent className="grid gap-2">{status.mode === "manual" && <p className="text-xs text-muted-foreground">{COPY.markDoneHint}</p>}<pre className="overflow-x-auto whitespace-pre-wrap rounded-md bg-muted p-3 font-mono text-xs [overflow-wrap:anywhere]">{status.sql}</pre></CardContent>
         </Card>
       )}
     </div>
@@ -919,10 +971,31 @@ function StatTile({ label, value, detail }) {
 
 const Swatch = ({ color }) => <span className="inline-block size-2.5 shrink-0 rounded-sm" style={{ background: `var(${color})` }} aria-hidden="true" />;
 
-// Questions per day, the part that needs attention stacked on top. Hovering a day shows its
-// numbers in the line above the bars; screen readers get the same numbers as a table.
+// Questions per day, the part that needs attention stacked on top. Hovering a day, tapping or
+// dragging along the bars, or the arrow keys once the chart has focus, show a day's numbers in the
+// line above the bars; screen readers get the same numbers as a table.
 function DailyChart({ daily }) {
   const [hover, setHover] = React.useState(null);
+  const barsRef = React.useRef(null);
+  // On a phone a bar is a few pixels wide, so the day comes from the pointer's x position: a tap
+  // anywhere along the chart picks the nearest day.
+  const pick = event => {
+    const rect = barsRef.current.getBoundingClientRect();
+    setHover(Math.min(daily.length - 1, Math.max(0, Math.floor(((event.clientX - rect.left) / rect.width) * daily.length))));
+  };
+  const step = event => {
+    const move = { ArrowLeft: -1, ArrowRight: 1, Home: -Infinity, End: Infinity }[event.key];
+    if (move === undefined) return;
+    event.preventDefault();
+    setHover(current => Math.min(daily.length - 1, Math.max(0, (current ?? (move > 0 ? -1 : daily.length)) + move)));
+  };
+  // A tap anywhere else puts the period's totals back.
+  React.useEffect(() => {
+    if (hover == null) return undefined;
+    const away = event => { if (!barsRef.current?.contains(event.target)) setHover(null); };
+    document.addEventListener("pointerdown", away);
+    return () => document.removeEventListener("pointerdown", away);
+  }, [hover]);
   const max = Math.max(1, ...daily.map(day => day.questions));
   const total = daily.reduce((sum, day) => ({ questions: sum.questions + day.questions, attention: sum.attention + day.unsuccessful + day.negative }), { questions: 0, attention: 0 });
   const day = hover == null ? null : daily[hover];
@@ -938,13 +1011,13 @@ function DailyChart({ daily }) {
           ? fill(COPY.dayReadout, { day: shortDay(day.day), questions: plural(COPY.questionCount, day.questions), attention: day.unsuccessful + day.negative })
           : fill(COPY.periodReadout, { questions: plural(COPY.questionCount, total.questions), attention: total.attention })}
       </p>
-      <div className="relative flex h-32 items-end gap-px border-b border-border" aria-hidden="true" onMouseLeave={() => setHover(null)}>
+      <div ref={barsRef} role="img" aria-label={COPY.chartKeys} tabIndex={0} className="relative flex h-32 touch-pan-y items-end gap-px rounded-sm border-b border-border outline-none focus-visible:ring-3 focus-visible:ring-ring/50" onPointerDown={pick} onPointerMove={pick} onPointerLeave={event => { if (event.pointerType === "mouse") setHover(null); }} onKeyDown={step} onBlur={() => setHover(null)}>
         <span className="pointer-events-none absolute left-0 top-0 text-[11px] tabular-nums text-muted-foreground">{max}</span>
         {daily.map((entry, index) => {
           // A thumbs down on an answered question also counts as needing attention.
           const attention = Math.min(entry.questions, entry.unsuccessful + entry.negative);
           return (
-            <div key={entry.day} className={`flex h-full min-w-0 flex-1 flex-col justify-end gap-[2px] ${hover === index ? "bg-muted" : ""}`} onMouseEnter={() => setHover(index)}>
+            <div key={entry.day} className={`flex h-full min-w-0 flex-1 flex-col justify-end gap-[2px] ${hover === index ? "bg-muted" : ""}`}>
               {attention > 0 && <div className="rounded-t-sm" style={{ height: `${(attention / max) * 100}%`, background: "var(--chart-attention)" }} />}
               {entry.questions - attention > 0 && <div className={attention ? "" : "rounded-t-sm"} style={{ height: `${((entry.questions - attention) / max) * 100}%`, background: "var(--chart-answered)" }} />}
             </div>
@@ -965,19 +1038,19 @@ function DailyChart({ daily }) {
 function SplitTable({ title, rows, name }) {
   const max = Math.max(1, ...rows.map(row => row.questions));
   return (
-    <div className="grid content-start gap-2">
+    <div className="grid min-w-0 content-start gap-2">
       {title && <h3 className="text-sm font-medium">{title}</h3>}
       <table className="w-full text-sm">
-        <thead className="text-xs text-muted-foreground"><tr><th scope="col" className="pb-1 text-left font-normal">{COPY.colName}</th><th scope="col" className="pb-1 text-right font-normal">{COPY.colQuestions}</th><th scope="col" className="pb-1 text-right font-normal">{COPY.colAttention}</th><th scope="col" className="pb-1 text-right font-normal"><ThumbsUp className="ml-auto size-3.5" aria-label={COPY.helpful} /></th><th scope="col" className="pb-1 text-right font-normal"><ThumbsDown className="ml-auto size-3.5" aria-label={COPY.notHelpful} /></th></tr></thead>
+        <thead className="text-xs text-muted-foreground"><tr><th scope="col" className="pb-1 text-left font-normal">{COPY.colName}</th><th scope="col" className="pb-1 pl-3 text-right font-normal">{COPY.colQuestions}</th><th scope="col" className="pb-1 pl-3 text-right font-normal">{COPY.colAttention}</th><th scope="col" className="w-8 pb-1 pl-2 text-right font-normal"><ThumbsUp className="ml-auto size-3.5" aria-label={COPY.helpful} /></th><th scope="col" className="w-8 pb-1 pl-2 text-right font-normal"><ThumbsDown className="ml-auto size-3.5" aria-label={COPY.notHelpful} /></th></tr></thead>
         <tbody>
           {rows.map(row => (
             <tr key={name(row)} className="border-t border-border">
               <th scope="row" className="py-1.5 pr-2 text-left font-normal">
-                <span className="block truncate">{name(row)}</span>
+                <span className="line-clamp-2 break-words" title={name(row)}>{name(row)}</span>
                 <span className="mt-1 block h-1.5 rounded-full" style={{ width: `${Math.max(2, (row.questions / max) * 100)}%`, background: "var(--chart-answered)" }} aria-hidden="true" />
               </th>
-              <td className="py-1.5 text-right tabular-nums">{row.questions}</td>
-              <td className="py-1.5 text-right tabular-nums">{row.unsuccessful + row.negative || "—"}</td>
+              <td className="py-1.5 pl-3 text-right tabular-nums">{row.questions}</td>
+              <td className="py-1.5 pl-3 text-right tabular-nums">{row.unsuccessful + row.negative || "—"}</td>
               <td className="py-1.5 pl-2 text-right tabular-nums">{row.positive || "—"}</td>
               <td className="py-1.5 pl-2 text-right tabular-nums">{row.negative || "—"}</td>
             </tr>
@@ -1045,7 +1118,7 @@ function QuestionsTab({ dives, onOpen }) {
   return (
     <div className="grid gap-4">
       <Card>
-        <CardHeader className="grid gap-3">
+        <CardHeader className="grid gap-3 *:min-w-0">
           <div className="grid max-w-3xl gap-1.5"><CardTitle role="heading" aria-level={2}>{COPY.questionsTitle}</CardTitle><CardDescription>{admin ? COPY.questionsBody : fill(COPY.managerQuestions, { groups: (data?.facets?.groups || []).join(", ") })}</CardDescription></div>
           <div className="flex flex-wrap gap-2">
             <select aria-label={COPY.period} className={select} value={filters.days} onChange={e => setFilters(f => ({ ...f, days: e.target.value }))}>
@@ -1059,7 +1132,7 @@ function QuestionsTab({ dives, onOpen }) {
               <option value="">{COPY.allGroups}</option>
               {(data?.facets?.groups || []).map(name => <option key={name} value={name}>{name}</option>)}
             </select>
-            <span className="flex gap-2 sm:ml-auto">
+            <span className="flex flex-wrap gap-2 sm:ml-auto">
               <Button size="sm" variant="ghost" onClick={load} disabled={state.loading}><RefreshCw data-icon="inline-start" aria-hidden="true" />{COPY.refresh}</Button>
               {admin && data?.digest && <WriteButton size="sm" variant="ghost" onClick={sendDigest} disabled={Boolean(action.busy)}>{COPY.sendDigest}</WriteButton>}
               <Button size="sm" variant="outline" onClick={exportCsv} disabled={state.exporting || !totals?.questions}><Download data-icon="inline-start" aria-hidden="true" />{COPY.exportQuestions}</Button>
@@ -1191,10 +1264,10 @@ function ActivityTab() {
   React.useEffect(() => { const timer = setTimeout(() => load(0), 250); return () => { clearTimeout(timer); request.abort(); }; }, [load, request]);
   return (
     <Card>
-      <CardHeader className="grid gap-3">
+      <CardHeader className="grid gap-3 *:min-w-0">
         <div className="grid max-w-3xl gap-1.5"><CardTitle role="heading" aria-level={2}>{COPY.activityTitle}</CardTitle><CardDescription>{COPY.activityBody}</CardDescription></div>
         <div className="flex flex-wrap gap-2">
-          <div className="relative"><Search className="absolute left-2 top-2.5 size-4 text-muted-foreground" aria-hidden="true" /><Input type="search" className="h-9 w-56 pl-8" aria-label={COPY.filterActivity} placeholder={COPY.filterActivity} value={filters.q} onChange={e => setFilters(f => ({ ...f, q: e.target.value }))} /></div>
+          <div className="relative"><Search className="absolute left-2 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" /><Input type="search" className="h-9 w-56 pl-8" aria-label={COPY.filterActivity} placeholder={COPY.filterActivity} value={filters.q} onChange={e => setFilters(f => ({ ...f, q: e.target.value }))} /></div>
           <select aria-label={COPY.allActions} className={select} value={filters.action} onChange={e => setFilters(f => ({ ...f, action: e.target.value }))}>
             <option value="">{COPY.allActions}</option>
             {Object.entries(COPY.actions).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
@@ -1206,7 +1279,7 @@ function ActivityTab() {
         {!state.loading && !events.length && !state.error && <p className="text-sm text-muted-foreground">{COPY.noActivity}</p>}
         <ol className="grid">
           {events.map(event => (
-            <li key={event.id} className="grid gap-0.5 border-b border-border py-2 text-sm last:border-b-0">
+            <li key={event.id} className="grid gap-0.5 border-b border-border py-2 text-sm [overflow-wrap:anywhere] last:border-b-0">
               <span><span className="font-medium">{event.actor_label || "—"}</span>: {COPY.actions[event.action] || event.action}{event.target_label && <> <span className="font-medium">{event.target_label}</span></>}</span>
               <span className="text-xs text-muted-foreground">{[dateTime(event.created_at), describeDetail(event.detail)].filter(Boolean).join(" · ")}</span>
             </li>
@@ -1219,10 +1292,48 @@ function ActivityTab() {
   );
 }
 
+// Each statement exactly as MotherDuck received it, in the order sent: parameters are already
+// bound in (bound_sql) and result rows are never saved. sent: false marks a statement that failed
+// before it went out; truncated, one too long to keep in full. Statements saved before these were
+// recorded show the placeholders with their values, and no time. Past the saved limit only a count is kept.
+function SentQueries({ queries, dropped = 0, open }) {
+  const total = queries.reduce((sum, entry) => sum + (Number(entry.ms) || 0), 0);
+  return (
+    <details open={open} className="min-w-0 rounded border border-border">
+      <summary className="cursor-pointer px-2 py-1.5 font-medium text-foreground max-md:py-3 pointer-coarse:py-3">{fill(COPY.queriesSent, { count: (queries.length + dropped).toLocaleString() })} <span className="font-normal text-muted-foreground">· {fill(COPY.queriesTotal, { ms: total.toLocaleString() })}</span></summary>
+      <ol className="grid grid-cols-1 gap-2 px-2 pb-2">
+        {queries.map((entry, index) => {
+          const text = entry.bound_sql ?? entry.sql ?? "";
+          const number = fill(COPY.queryNumber, { n: index + 1 });
+          const copyLabel = entry.truncated ? COPY.copySqlStart : COPY.copySql;
+          return (
+            <li key={index} className="grid min-w-0 grid-cols-1 gap-1.5 border-t border-border pt-2 [overflow-wrap:anywhere]">
+              <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                <span className="font-medium text-foreground tabular-nums">{index + 1}.</span>
+                <When value={entry.started_at} className="text-foreground" />
+                {entry.ms != null && <span className="tabular-nums">{fill(COPY.queryMs, { ms: Number(entry.ms).toLocaleString() })}</span>}
+                {entry.error ? <span className="min-w-0 text-destructive">{fill(entry.sent === false ? COPY.queryNotSent : COPY.queryFailed, { error: entry.error })}</span> : entry.rows != null && <span className="tabular-nums">{plural(COPY.queryResult, entry.rows)}</span>}
+                {entry.tool && <span className="min-w-0">{COPY.queryTool} <code className="font-mono">{entry.tool}</code></span>}
+                <CopyButton text={text} label={copyLabel} aria-label={`${copyLabel}: ${number}`} className={`ml-auto ${TAP}`} />
+              </div>
+              <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded bg-muted p-2 font-mono text-[11px] leading-relaxed text-foreground [overflow-wrap:normal]">{text}</pre>
+              {entry.truncated && <p className="text-destructive">{COPY.queryTruncated}</p>}
+              {!entry.bound_sql && entry.sent !== true && entry.parameters?.length > 0 && <p>{fill(entry.sent === false ? COPY.queryValues : COPY.queryUnbound, { values: entry.parameters.map((value, i) => `$${i + 1} = ${value}`).join(" · ") })}</p>}
+            </li>
+          );
+        })}
+      </ol>
+      {dropped > 0 && <p className="px-2 pb-2">{plural(COPY.queriesDropped, dropped)}</p>}
+    </details>
+  );
+}
+
 function ConversationDetail({ id, diveTitle, onDeleted }) {
   const [conversation, setConversation] = React.useState(null);
   const [error, setError] = React.useState("");
   const [confirming, setConfirming] = React.useState(false);
+  // Each answer's SQL is open so it can be read without hunting; one button folds it all away to scan a long conversation.
+  const [showSql, setShowSql] = React.useState(true);
   React.useEffect(() => {
     let active = true;
     setConversation(null); setError(""); setConfirming(false);
@@ -1239,18 +1350,19 @@ function ConversationDetail({ id, diveTitle, onDeleted }) {
   return (
     <div className="grid gap-4">
       <div className="flex flex-wrap items-start gap-2">
-        <div className="mr-auto min-w-0"><h3 className="font-medium">{conversation.title}</h3><p className="text-xs text-muted-foreground">{conversation.user_label} · {diveTitle(conversation.dive_key)} · {dateTime(conversation.created_at)}</p></div>
-        <span className="flex shrink-0 gap-2">
-          <Button size="sm" variant="outline" onClick={exportJson}><Download data-icon="inline-start" aria-hidden="true" />{COPY.exportJson}</Button>
+        <div className="mr-auto min-w-0"><h3 className="break-words font-medium">{conversation.title}</h3><p className="text-xs text-muted-foreground">{conversation.user_label} · {diveTitle(conversation.dive_key)} · {dateTime(conversation.created_at)}</p></div>
+        <span className="flex flex-wrap gap-2">
+          {conversation.messages.some(message => message.queries?.length > 0) && <Button size="sm" variant="outline" className={TAP} onClick={() => setShowSql(open => !open)}>{showSql ? COPY.hideSql : COPY.showSql}</Button>}
+          <Button size="sm" variant="outline" className={TAP} onClick={exportJson}><Download data-icon="inline-start" aria-hidden="true" />{COPY.exportJson}</Button>
           {/* The same button asks once more, so keyboard focus stays on it. */}
-          <WriteButton size="sm" variant={confirming ? "destructive" : "ghost"} onClick={confirming ? remove : () => setConfirming(true)}><Trash2 data-icon="inline-start" aria-hidden="true" />{confirming ? COPY.confirmRemove : COPY.remove}</WriteButton>
+          <WriteButton size="sm" variant={confirming ? "destructive" : "ghost"} className={TAP} onClick={confirming ? remove : () => setConfirming(true)}><Trash2 data-icon="inline-start" aria-hidden="true" />{confirming ? COPY.confirmRemove : COPY.remove}</WriteButton>
         </span>
       </div>
-      <ol className="grid gap-3">
+      <ol className="grid grid-cols-1 gap-3">
         {conversation.messages.map(message => (
-          <li key={message.id} className={message.role === "user" ? "rounded-md bg-muted px-3 py-2" : "rounded-md border border-border px-3 py-2"}>
+          <li key={message.id} className={message.role === "user" ? "min-w-0 rounded-md bg-muted px-3 py-2" : "min-w-0 rounded-md border border-border px-3 py-2"}>
             <p className="mb-1 flex flex-wrap items-center gap-1.5 text-xs font-medium text-muted-foreground">
-              {message.role === "user" ? COPY.question : COPY.answer} · {dateTime(message.created_at)}
+              {message.role === "user" ? COPY.question : COPY.answer} · <When value={message.created_at} className="text-foreground" />
               {message.status && message.status !== "answered" && <Badge variant="destructive">{COPY.statuses[message.status] || message.status}</Badge>}
               {message.feedback === 1 && <Badge variant="outline"><ThumbsUp aria-hidden="true" />{COPY.helpful}</Badge>}
               {message.feedback === -1 && <Badge variant="outline"><ThumbsDown aria-hidden="true" />{COPY.notHelpful}{message.feedback_reason ? `: ${FEEDBACK_REASONS[message.feedback_reason] || message.feedback_reason}` : ""}</Badge>}
@@ -1262,15 +1374,16 @@ function ConversationDetail({ id, diveTitle, onDeleted }) {
             {message.role === "user" && message.group_names?.length > 0 && <p className="mt-1 text-xs text-muted-foreground">{fill(COPY.askedFrom, { groups: message.group_names.join(", ") })}</p>}
             {message.role === "user" && message.dive_state && Object.keys(message.dive_state).length > 0 && <p className="mt-1 break-words text-xs text-muted-foreground">{fill(COPY.askedWith, { state: Object.entries(message.dive_state).map(([key, value]) => `${key}: ${typeof value === "object" ? JSON.stringify(value) : String(value)}`).join(" · ") })}</p>}
             {message.role === "assistant" && (
-              <div className="mt-2 grid gap-1 text-xs text-muted-foreground">
+              <div className="mt-2 grid grid-cols-1 gap-1 text-xs text-muted-foreground">
                 {message.model_tier && <span>{[message.model_tier, message.model_provider, message.model_id].filter(Boolean).join(" · ")}{message.worked_ms != null ? ` · ${fill(COPY.seconds, { s: (Number(message.worked_ms) / 1000).toFixed(1) })}` : ""}{message.input_tokens != null ? ` · ${fill(COPY.tokens, { input: message.input_tokens, output: message.output_tokens })}` : ""}</span>}
                 {message.route_reason && <span>{COPY.routed}: {message.route_reason}</span>}
                 {(message.tools || []).map((tool, index) => (
-                  <details key={index} className="rounded border border-border px-2 py-1">
-                    <summary className="cursor-pointer">{COPY.tool[tool.tool] || tool.tool}{tool.purpose ? ` · ${tool.purpose}` : ""}{tool.table ? ` · ${tool.table}` : ""}{typeof tool.rowCount === "number" ? ` · ${tool.rowCount}${tool.truncated ? "+" : ""} rows` : ""}{tool.error ? ` · ${tool.error}` : ""}</summary>
-                    {tool.sql && <pre className="mt-1 overflow-x-auto whitespace-pre-wrap font-mono text-[11px]">{tool.sql}</pre>}
+                  <details key={index} className="min-w-0 rounded border border-border px-2">
+                    <summary className="cursor-pointer py-1 max-md:py-3 pointer-coarse:py-3">{COPY.tool[tool.tool] || tool.tool}{tool.purpose ? ` · ${tool.purpose}` : ""}{tool.table ? ` · ${tool.table}` : ""}{typeof tool.rowCount === "number" ? ` · ${tool.rowCount}${tool.truncated ? "+" : ""} rows` : ""}{tool.error ? ` · ${tool.error}` : ""}</summary>
+                    {tool.sql && <pre className="mb-1 max-h-64 overflow-auto whitespace-pre-wrap font-mono text-[11px]">{tool.sql}</pre>}
                   </details>
                 ))}
+                {message.queries?.length > 0 && <SentQueries key={String(showSql)} queries={message.queries} dropped={Number(message.queries_dropped) || 0} open={showSql} />}
               </div>
             )}
           </li>
@@ -1308,7 +1421,10 @@ function ConversationsTab({ users, dives, initial }) {
   }, [filters, request]);
   React.useEffect(() => { const timer = setTimeout(() => load(0), 250); return () => { clearTimeout(timer); request.abort(); }; }, [load, request]);
   return (
-    <div className="grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
+      <Card className="min-w-0 lg:col-span-2">
+        <CardHeader><div className="grid max-w-3xl gap-1.5"><CardTitle role="heading" aria-level={2}>{COPY.conversationsTitle}</CardTitle><CardDescription>{COPY.conversationsBody}</CardDescription></div></CardHeader>
+      </Card>
       <Card className="min-w-0">
         <CardHeader className="grid gap-2">
           <div className="flex flex-wrap gap-2">
@@ -1321,7 +1437,7 @@ function ConversationsTab({ users, dives, initial }) {
               {dives.map(dive => <option key={dive.key} value={dive.key}>{dive.title}</option>)}
             </select>
           </div>
-          <div className="relative"><Search className="absolute left-2 top-2.5 size-4 text-muted-foreground" aria-hidden="true" /><Input className="pl-8" aria-label={COPY.search} placeholder={COPY.search} value={filters.q} onChange={e => setFilters(f => ({ ...f, q: e.target.value }))} /></div>
+          <div className="relative"><Search className="absolute left-2 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" /><Input className="pl-8" aria-label={COPY.search} placeholder={COPY.search} value={filters.q} onChange={e => setFilters(f => ({ ...f, q: e.target.value }))} /></div>
           <label className="flex items-center gap-2 text-sm"><input type="checkbox" className="size-4 accent-primary" checked={filters.attention === "1"} onChange={e => setFilters(f => ({ ...f, attention: e.target.checked ? "1" : "" }))} />{COPY.needsAttentionFilter}</label>
         </CardHeader>
         <CardContent>
@@ -1331,7 +1447,7 @@ function ConversationsTab({ users, dives, initial }) {
             {items.map(item => (
               <li key={item.id}>
                 <button type="button" onClick={() => open(item.id)} aria-current={selected === item.id || undefined} className={`grid w-full gap-0.5 border-b border-border px-1 py-2 text-left last:border-b-0 hover:bg-muted ${selected === item.id ? "bg-muted" : ""}`}>
-                  <span className="truncate text-sm font-medium">{item.title || "—"}</span>
+                  <span className="line-clamp-2 text-sm font-medium [overflow-wrap:anywhere] md:line-clamp-1">{item.title || "—"}</span>
                   <span className="text-xs text-muted-foreground">{item.user_label} · {diveTitle(item.dive_key)} · {plural(COPY.messages, Number(item.message_count))}{item.model_tiers ? ` · ${item.model_tiers}` : ""} · {dateTime(item.updated_at)}</span>
                   {(item.unsuccessful_count > 0 || item.negative_count > 0 || item.positive_count > 0) && (
                     <span className="flex flex-wrap gap-1.5">
@@ -1391,10 +1507,12 @@ export default function AdminApp() {
   const loadSync = React.useCallback(async () => {
     try { setSync(await api("/api/admin/access-sync")); } catch (error) { setSync({ error: reasonFor(error), grants: [] }); }
   }, []);
+  // With SHARED_PASSWORD_ADMIN (mdGrants: false) the whole deployment has no MotherDuck access tab,
+  // whichever administrator is signed in.
   const fetchPeople = React.useCallback(async () => {
     const people = await api("/api/admin/people");
     setData(people);
-    if (people.scope === "admin") await loadSync();
+    if (people.scope === "admin" && people.mdGrants !== false) await loadSync();
   }, [loadSync]);
   // Reloads after a change. The previous list stays on screen, with the failure above it.
   const load = React.useCallback(async () => {
@@ -1418,9 +1536,25 @@ export default function AdminApp() {
   }, [fetchPeople]);
 
   const admin = data.scope === "admin";
-  const tabs = [["users", COPY.users, Users], ...(admin ? [["groups", COPY.groups, UsersRound], ["motherduck", COPY.motherduck, Database], ["activity", COPY.activity, History], ["questions", COPY.questions, ChartColumn], ["conversations", COPY.conversations, MessageSquare], ["models", COPY.models, Bot]] : [["questions", COPY.questions, ChartColumn]])];
-  const shown = tabs.some(([key]) => key === tab) ? tab : "users";
+  const tabs = [["users", COPY.users, Users], ...(admin ? [["groups", COPY.groups, UsersRound], ...(data.mdGrants === false ? [] : [["motherduck", COPY.motherduck, Database]]), ["activity", COPY.activity, History], ["questions", COPY.questions, ChartColumn], ["conversations", COPY.conversations, MessageSquare], ["models", COPY.models, Bot]] : [["questions", COPY.questions, ChartColumn]])];
+  const shown = tabs.some(([key]) => key === tab) ? tab : tabs[0][0];
   React.useEffect(() => { if (status.state === "ready" && shown === "motherduck") loadSync(); }, [status.state, shown, loadSync]);
+  // Below desktop width the tab row scrolls sideways. The open tab is scrolled into the row (only
+  // the row moves, never the page), and a fade marks each edge that has more tabs past it.
+  React.useEffect(() => {
+    const list = document.getElementById("admin-tabs");
+    if (status.state !== "ready" || !list) return undefined;
+    const tab = document.getElementById(`tab-${shown}`);
+    if (tab && list.scrollWidth > list.clientWidth) list.scrollLeft = tab.offsetLeft - (list.clientWidth - tab.offsetWidth) / 2;
+    const mark = () => {
+      list.dataset.moreStart = String(list.scrollLeft > 1);
+      list.dataset.moreEnd = String(list.scrollLeft + list.clientWidth < list.scrollWidth - 1);
+    };
+    mark();
+    list.addEventListener("scroll", mark, { passive: true });
+    window.addEventListener("resize", mark);
+    return () => { list.removeEventListener("scroll", mark); window.removeEventListener("resize", mark); };
+  }, [status.state, shown]);
   // Arrow keys move between tabs, as in any tab list.
   // A conversation opened from Questions is shown once; choosing a tab by hand starts from the list.
   const chooseTab = key => { setOpenConversation(null); setTab(key); };
@@ -1435,18 +1569,20 @@ export default function AdminApp() {
   };
   const message = { off: [COPY.accountsOff, COPY.accountsOffBody], signin: [COPY.title, COPY.signIn], forbidden: [COPY.title, COPY.notAdmin], error: [COPY.title, fill(COPY.failed, { reason: status.message })] }[status.state];
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      <header className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-border px-4 py-3">
+    // The page runs edge to edge (viewport-fit=cover), so it keeps clear of a notch held sideways.
+    <div className="min-h-dvh bg-background pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)] text-foreground">
+      <header className="admin-header flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-border px-4 pt-[max(0.75rem,env(safe-area-inset-top))] pb-3 max-lg:pb-1">
         <Button size="sm" variant="ghost" nativeButton={false} render={<a href="/" />}><ArrowLeft data-icon="inline-start" aria-hidden="true" />{COPY.back}</Button>
         <h1 className="text-base font-semibold">{COPY.title}</h1>
+        {/* Below desktop width the tabs stay on one row that scrolls sideways, instead of wrapping. */}
         {status.state === "ready" && (
-          <div role="tablist" aria-label={COPY.title} className="flex w-full flex-wrap gap-1 sm:ml-auto sm:w-auto" onKeyDown={onTabKey}>
+          <div id="admin-tabs" role="tablist" aria-label={COPY.title} className="admin-tabs relative -mx-4 flex w-[calc(100%+2rem)] flex-nowrap gap-1 overflow-x-auto scroll-px-4 px-4 pb-2 lg:mx-0 lg:ml-auto lg:w-auto lg:flex-wrap lg:overflow-visible lg:px-0 lg:pb-0" onKeyDown={onTabKey}>
             {tabs.map(([key, label, Icon]) => <Button key={key} id={`tab-${key}`} role="tab" aria-selected={shown === key} aria-controls="admin-panel" tabIndex={shown === key ? 0 : -1} size="sm" variant={shown === key ? "secondary" : "ghost"} onClick={() => chooseTab(key)}><Icon data-icon="inline-start" aria-hidden="true" />{label}</Button>)}
           </div>
         )}
       </header>
       <ReadOnly.Provider value={readOnly}>
-      <main id="admin-panel" role={status.state === "ready" ? "tabpanel" : undefined} aria-labelledby={status.state === "ready" ? `tab-${shown}` : undefined} className="mx-auto grid max-w-6xl gap-6 px-4 py-6">
+      <main id="admin-panel" role={status.state === "ready" ? "tabpanel" : undefined} aria-labelledby={status.state === "ready" ? `tab-${shown}` : undefined} className={`mx-auto grid max-w-6xl gap-6 px-4 pt-6 admin-touch *:min-w-0 pb-[max(1.5rem,env(safe-area-inset-bottom))]`}>
         {status.state === "loading" && <Spinner />}
         {status.demo && (
           <Card>

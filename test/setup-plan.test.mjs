@@ -107,3 +107,16 @@ test('accounts mode and Anthropic change the requirements an agent is asked for'
   assert.match(accounts.nextCommands[0], /db:migrate/);
   assert.equal(setupPlan({ env: { ...env, MOTHERDUCK_APP_TOKEN: 'private-app', SESSION_SECRET: 'x'.repeat(32), VERCEL: '1' }, production: true }).configurationReady, true);
 });
+
+test('shared-password admin keeps the shared password and asks for the app database and APP_URL', () => {
+  const hybrid = setupPlan({ env: { ...env, SHARED_PASSWORD_ADMIN: 'true' }, production: true });
+  assert.equal(hybrid.signIn, 'shared_password_admin');
+  assert.deepEqual(hybrid.blockers[0].names, ['DEMO_PASSWORD', 'SESSION_SECRET', 'APP_URL', 'AUTH_TRUSTED_IP_HEADER']);
+  assert.equal(hybrid.requirements.find(x => x.name === 'APP_DATABASE').required, false, 'the default database name works');
+  assert.ok(!hybrid.nextCommands.some(command => /db:migrate|admin:create/.test(command)), 'the store creates itself, and the shared password is the first administrator');
+  assert.equal(setupPlan({ env: { ...env, SHARED_PASSWORD_ADMIN: 'true', DEMO_PASSWORD: 'p', SESSION_SECRET: 'x'.repeat(32), VERCEL: '1' }, production: true }).configurationReady, true);
+  const local = setupPlan({ env: { ...env, SHARED_PASSWORD_ADMIN: 'true' } });
+  assert.deepEqual([local.signIn, local.requirements.some(x => x.name === 'APP_DATABASE'), local.requirements.some(x => x.name === 'APP_URL')], ['shared_password_admin', true, false]);
+  // Without a token for the store the setting does nothing.
+  assert.equal(setupPlan({ env: { ...env, MOTHERDUCK_EMBED_TOKEN: '', SHARED_PASSWORD_ADMIN: 'true' } }).signIn, 'password');
+});

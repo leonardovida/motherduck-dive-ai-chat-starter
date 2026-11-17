@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { budgets } from '../../../../lib/budgets.mjs';
-import { NO_STORE, failure, requireAdmin, badBody } from '../../../../lib/admin-api.mjs';
+import { MOTHERDUCK_OFF, NO_STORE, failure, requireAdmin, badBody } from '../../../../lib/admin-api.mjs';
+import { sharedAdminAccounts } from '../../../../lib/auth.mjs';
 import { readJsonBody } from '../../../../lib/request-body.mjs';
 import { createPeopleService, MAX_IMPORT } from '../../../../lib/people.mjs';
 import { listDives, publicDive } from '../../../../lib/dives.mjs';
@@ -23,6 +24,10 @@ const createSchema = z.object({
   manager: z.boolean().optional(),
 });
 
+// mdGrants: false with SHARED_PASSWORD_ADMIN, where the portal hides MotherDuck usernames and
+// service accounts and the server refuses them (lib/auth.mjs MOTHERDUCK_OFF).
+const mdFields = () => (sharedAdminAccounts() ? { mdGrants: false, mdAutomatic: false } : { mdGrants: true, mdAutomatic: adminConfigured() });
+
 // Everyone the caller may manage, with group memberships. Managers see their groups only.
 export async function GET(request) {
   const { response, scope, viewer } = await requireAdmin(request, { managers: true });
@@ -41,7 +46,7 @@ export async function GET(request) {
       try { usage = await budgets().usage({ fresh: true }); } catch (error) { console.error('budget_usage_failed', error?.code ?? error?.name); }
     }
     result.groups = result.groups.map(group => ({ ...group, chatReady: chatReady(group), ...(group.monthlyTokenCap ? { tokensThisMonth: usage.get(group.id) ?? 0 } : {}) }));
-    return Response.json({ ...result, dives, scope: scope.all ? 'admin' : 'manager', me: viewer.id, maxImport: MAX_IMPORT, mdAutomatic: adminConfigured() }, { headers: NO_STORE });
+    return Response.json({ ...result, dives, scope: scope.all ? 'admin' : 'manager', me: viewer.id, maxImport: MAX_IMPORT, ...mdFields() }, { headers: NO_STORE });
   } catch (error) {
     console.error('people_list_failed', error?.code ?? error?.name);
     return failure('accounts_unavailable', 503);
@@ -54,6 +59,7 @@ export async function POST(request) {
   if (response) return response;
   let body;
   try { body = createSchema.parse(await readJsonBody(request, 131072)); } catch (error) { return badBody(error, 'invalid_people'); }
+  if (sharedAdminAccounts() && body.people.some(item => item.motherduckUser?.trim())) return failure(MOTHERDUCK_OFF, 400);
   if (body.access && body.access.dives !== '*') {
     const known = new Set(listDives().map(dive => dive.key));
     body.access = { ...body.access, dives: body.access.dives.filter(key => known.has(key)) };

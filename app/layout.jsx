@@ -12,6 +12,12 @@ export function generateMetadata() {
   };
 }
 
+// viewport-fit=cover lets every page pad itself with env(safe-area-inset-*) on notched phones.
+// The on-screen keyboard keeps the browser default (it overlays the page instead of resizing it):
+// the chat sheet sizes itself from visualViewport, which works the same on iOS and Android, and a
+// field focused inside an embedded Dive does not squeeze the Dive's whole layout.
+export const viewport = { width: "device-width", initialScale: 1, viewportFit: "cover" };
+
 // Applies a stored dark theme before the first paint, so a dark page does not flash light while
 // the app loads. The app keeps the class in step afterwards.
 const THEME_SCRIPT = 'try{if(localStorage.getItem("dive_app_theme")==="dark"){document.documentElement.classList.add("dark");document.documentElement.style.colorScheme="dark"}}catch(e){}';

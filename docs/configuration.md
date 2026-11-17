@@ -26,7 +26,7 @@ npm run --silent setup -- --json --production # also checks sign-in settings
 
 | Setting | Required | What it is | Where it comes from |
 | --- | --- | --- | --- |
-| `MOTHERDUCK_EMBED_TOKEN` | Yes | Lets the server open short-lived embed sessions for your MotherDuck organization. It never reaches the browser. | A MotherDuck token allowed to create embed sessions. Embedding requires a MotherDuck plan that supports embedded Dives. |
+| `MOTHERDUCK_EMBED_TOKEN` | Yes | Lets the server open short-lived embed sessions for your MotherDuck organization. It never reaches the browser. With `SHARED_PASSWORD_ADMIN=true` and no `MOTHERDUCK_APP_TOKEN`, it also creates and owns the app database, which holds password hashes, sessions and saved conversations. | A MotherDuck token allowed to create embed sessions. Embedding requires a MotherDuck plan that supports embedded Dives. |
 | `MOTHERDUCK_EMBED_USERNAME` | Yes | The **read-only service account** the embedded Dive runs as. Viewers see only what this account can read. | The exact username of a service account in the same organization. |
 | `DIVE_OVERVIEW_ID` | Yes | The ID of the saved Dive to show. | The Dive's URL in MotherDuck, or `list_dives` in the MotherDuck MCP server. The included `dives/starter.tsx` can be saved as a first Dive. |
 | `DIVE_OVERVIEW_VERSION` | No | Pins a specific saved version of the Dive, so later edits do not appear until you update the pin. | The Dive's version history. |
@@ -48,6 +48,7 @@ Optional. Setting `MOTHERDUCK_APP_TOKEN` switches from the shared password to pe
 | `OKTA_*`, `MICROSOFT_*`, `GOOGLE_*`, `GITHUB_*` | No | Ready-made providers. See [Single sign-on](accounts.md#single-sign-on). | The provider's console. |
 | `PUBLIC_DEMO` | No | `true` makes a look-around demo: visitors can open every screen, including the admin portal, but cannot change anything. Model tiers left out of `CHAT_MODELS` stay visible but greyed out. See [Run a public demo](accounts.md#run-a-public-demo). | You choose it. |
 | `PUBLIC_DEMO_SIGN_IN_URL` | No | In a public demo, an `https` link on the sign-in page to where the demo username and password are published, such as a README section. | You choose it. |
+| `SHARED_PASSWORD_ADMIN` | No | `true` keeps the shared password as a built-in administrator sign-in, next to personal accounts that administrator creates in the admin portal. For demos where the presenter administers the app. The app database is created on first use, with `MOTHERDUCK_EMBED_TOKEN` when `MOTHERDUCK_APP_TOKEN` is unset, and MotherDuck grants, service accounts and the access sync are off. Anyone with the shared password is an administrator. See [Shared-password admin](accounts.md#shared-password-admin-demos). | You choose it. |
 | `AUTH_ALLOWED_EMAIL_DOMAINS` | No | Lets SSO create accounts for these domains, separated by commas. Without it, only existing accounts can use SSO. | Your company domains. |
 | `SSO_TRUSTED` | No | `true` trusts the generic OpenID Connect provider's emails without an `email_verified` claim, for linking and account creation. Use it only for your own directory, where nobody can register with an email they choose. | Your choice. |
 | `AUTH_NEW_ACCOUNT_ACCESS` | No | `all` (the default) gives accounts that SSO creates every Dive and chat. `none` starts them with nothing until an administrator grants access. | Your choice. |
