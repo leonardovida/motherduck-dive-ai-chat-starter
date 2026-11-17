@@ -96,14 +96,13 @@ test('everyone with the shared password is an administrator, one browser session
 test('Better Auth waits for the store to be created and migrated before its first query', async () => {
   const { betterAuth } = await import('better-auth');
   const { authOptions } = await import('../lib/auth.mjs');
-  const { appPool, authDatabase } = await import('../lib/app-db.mjs');
+  const { authDatabase } = await import('../lib/app-db.mjs');
   const env = { ...base, SHARED_PASSWORD_ADMIN: 'true', MOTHERDUCK_EMBED_TOKEN: 'embed' };
   const sent = [];
   let ready;
   globalThis.__diveChatAppReady = new Promise(resolve => { ready = resolve; });
   globalThis.__diveChatAppPool = { on() {}, connect: async () => ({ query: async sql => { sent.push(sql); return { rows: [], command: 'SELECT', rowCount: 0 }; }, release() {} }) };
   try {
-    assert.equal(authDatabase({ MOTHERDUCK_APP_TOKEN: 'app' }), appPool({ MOTHERDUCK_APP_TOKEN: 'app' }), 'accounts mode uses the pool as it is');
     const ctx = await betterAuth(authOptions(env, authDatabase(env))).$context;
     const lookup = ctx.internalAdapter.findUserById('u-1');
     await new Promise(resolve => setTimeout(resolve, 20));

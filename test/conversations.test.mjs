@@ -74,7 +74,7 @@ test('answers store compact SQL receipts, never result rows', async () => {
   const values = calls[0].values;
   assert.deepEqual(values.slice(2, 4), ['assistant', 'One row.']);
   assert.deepEqual(values.slice(5, 12), ['luna', 'anthropic', 'claude-haiku-5-5', 'rules: lookup', 10, 3, 1234]);
-  assert.deepEqual(values.slice(13), [null, 'answered', null]);
+  assert.deepEqual(values.slice(13), [null, 'answered', null, null]);
 });
 
 // A stand-in for pg.Client behind the real chat reader: it records the exact text of each statement.
@@ -123,11 +123,10 @@ test('every statement sent for an answer is logged with its outcome and saved wi
   assert.equal(saved.length, 60);
   assert.deepEqual(saved.slice(0, 3).map(entry => entry.sql), ['SELECT * FROM t', 'SELECT * FROM t WHERE id = $1', 'SELECT boom FROM t']);
   assert.equal(saved[1].bound_sql, "SELECT * FROM t WHERE id = '42'");
-  // Without dropped statements the column is left out, so a database not yet migrated still saves answers.
+  // Without dropped statements the count is NULL.
   calls.length = 0;
   await store.finishTurn({ conversationId: 'conv-12345678', answer: 'Two rows.', queries: log.entries.slice(0, 3) });
-  assert.match(calls[0].text, /status, queries\) VALUES/);
-  assert.equal(calls[0].values.length, 16);
+  assert.equal(calls[0].values[16], null);
 });
 
 test('a statement is timed from when it is sent, and names the tool that sent it', async () => {

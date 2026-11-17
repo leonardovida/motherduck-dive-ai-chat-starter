@@ -28,7 +28,7 @@ Accounts, sessions and conversations are stored in a **MotherDuck database** tha
    npm run db:migrate
    ```
 
-   The migration is safe to run again. Run it after every upgrade to a new release.
+   The migration is safe to run again. Run it after every upgrade to a new release. If it is missed, each server instance runs the same additive migration on its first use of the app database when the newest columns are missing. A failure there is logged as `app_store_upgrade_failed` and retried after 30 seconds, and sign-in and chat answers carry on.
 4. **Create the first administrator.** The command asks for the password without showing it. In automation, set `ADMIN_PASSWORD` from your secret manager instead.
 
    ```sh
@@ -148,7 +148,7 @@ Each saved answer also keeps every statement sent to the Dive's database while a
 
 An answer keeps its first 60 statements. When there were more, `chat_message.queries_dropped` holds how many more, and the answer in **Conversations and SQL** says so.
 
-Statements saved before `started_at`, `tool`, `sent`, `truncated` and `executed_sql` were recorded have them empty (`NULL`), except that `executed_sql` equals `sql` for a statement without parameters. Run `npm run db:migrate` after upgrading to add the new columns; with a shared-password administrator the app updates the database itself on first use.
+Statements saved before `started_at`, `tool`, `sent`, `truncated` and `executed_sql` were recorded have them empty (`NULL`), except that `executed_sql` equals `sql` for a statement without parameters. Run `npm run db:migrate` after upgrading to add the new columns. If that step is missed, the app adds them itself on its first use of the app database.
 
 ```sql
 -- Slowest and failing statements in the last 7 days
@@ -361,7 +361,7 @@ To set one up:
 
 - `lib/auth.mjs` configures Better Auth: username and password with self-sign-up off, the admin plugin, generic OIDC, sessions that last seven days, a one-minute signed cookie cache, and sign-in rate limits.
 - `lib/viewer.mjs` resolves who is asking and what they may open, for both the shared password and accounts. `/api/dives`, `/api/embed`, `/api/chat` and the admin routes all use it.
-- `lib/app-db-schema.mjs` generates DuckDB tables from Better Auth's own schema. Better Auth's migrator expects Postgres catalog functions that MotherDuck does not have, so `npm run db:migrate` owns the schema and Better Auth's start-up schema check is switched off.
+- `lib/app-db-schema.mjs` generates DuckDB tables from Better Auth's own schema. Better Auth's migrator expects Postgres catalog functions that MotherDuck does not have, so `npm run db:migrate` owns the schema and Better Auth's start-up schema check is switched off. `lib/app-db.mjs` also checks the schema once per server instance and runs the same additive migration when the newest columns are missing.
 - `lib/conversations.mjs` stores conversations with parameterized SQL. A person can only continue, and rate answers in, their own conversations (`/api/chat/feedback`).
 - `lib/insights.mjs` reads the `chat_questions` view for the **Questions** tab (`/api/admin/insights`). Every filter is a parameter and the period is at most 365 days. Group managers get a filter on `group_ids` for their groups.
 - `lib/budgets.mjs` sums this month's tokens per capped group and checks them before each question. `lib/topics.mjs` labels questions with the utility model and writes only the ids it sent. `lib/digest.mjs` builds and posts the weekly digest, claiming each week once in the `app_job` table.
