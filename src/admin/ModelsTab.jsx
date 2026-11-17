@@ -349,7 +349,7 @@ export default function ModelsTab({ demo = false }) {
           enabled={draft.enabled.includes(key)} onEnabled={() => toggleEnabled(key)}
           onTest={() => test(key)} result={results[key]} />
       ))}
-      <div className="sticky bottom-0 z-10 -mx-4 flex flex-wrap items-center gap-2 border-t border-border bg-background/95 px-4 py-3 backdrop-blur">
+      <div className="sticky bottom-0 z-10 -mx-4 flex flex-wrap items-center gap-2 border-t border-border bg-background/95 px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur">
         <Button type="button" aria-disabled={demo || undefined} title={demo ? COPY.demo : undefined} disabled={state.busy || (!dirty && !demo)} onClick={save}><Save data-icon="inline-start" aria-hidden="true" />{state.busy ? COPY.saving : COPY.save}</Button>
         <Button type="button" variant={confirmReset ? "destructive" : "outline"} aria-disabled={demo || undefined} title={demo ? COPY.demo : undefined} disabled={state.busy || (!overview.settings && !demo)} onClick={reset} onBlur={() => setConfirmReset(false)}><RotateCcw data-icon="inline-start" aria-hidden="true" />{confirmReset ? COPY.confirmReset : COPY.reset}</Button>
         <p role={state.tone === "error" ? "alert" : "status"} className={`min-w-0 basis-full text-sm sm:basis-auto ${state.tone === "error" ? "text-destructive" : "text-muted-foreground"}`}>{state.message || (dirty ? COPY.unsaved : "")}</p>
