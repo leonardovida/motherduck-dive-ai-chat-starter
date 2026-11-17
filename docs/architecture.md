@@ -28,7 +28,7 @@ Every server route is a Next.js route handler under `app/api/` that takes a web 
 
 ## Accounts and saved conversations
 
-When `MOTHERDUCK_APP_TOKEN` is set, Better Auth (mounted at `/api/account`) replaces the shared password. Accounts, sessions and conversations live in one MotherDuck database reached through the Postgres endpoint with a read-write token scoped to that database. The read-only chat identity is unchanged and never writes.
+When `MOTHERDUCK_APP_TOKEN` is set, Better Auth (mounted at `/api/account`) replaces the shared password. Accounts, sessions and conversations live in one MotherDuck database reached through the Postgres endpoint with a read-write token scoped to that database. The read-only chat identity is unchanged and never writes. With `SHARED_PASSWORD_ADMIN=true` the shared password stays as a built-in administrator sign-in next to Better Auth's personal accounts, and the app database creates and migrates itself on first use (`ensureAppStore` in `lib/app-db.mjs`).
 
 `lib/viewer.mjs` resolves every request to a viewer with a role, a Dive allowlist and a chat flag. `/api/dives` filters the list. `/api/embed`, `/api/chat` and the admin routes re-check the session against the database on every request, so bans and access changes apply at once. Admin changes also require a same-origin request. The schema is generated from Better Auth's own field definitions by `lib/app-db-schema.mjs`, because MotherDuck has no Postgres catalog functions for Better Auth's migrator. References are indexed but not constrained, since DuckDB cannot cascade deletes.
 

@@ -69,3 +69,31 @@ test('embed-only setup succeeds while partially configured chat needs attention'
   assert.equal((await checkSetup({ env: { ...embedOnly, OPENAI_API_KEY: 'key' } })).ok, false);
   assert.equal((await checkSetup({ env: { ...env, NODE_ENV: 'production' } })).ok, false);
 });
+
+test('shared-password admin creates and checks the app database live, and needs APP_URL in production', async () => {
+  const hybrid = { ...env, SHARED_PASSWORD_ADMIN: 'true', DEMO_PASSWORD: 'private-password' };
+  const offline = await checkSetup({ env: hybrid, ensureStore: () => assert.fail('offline check touched the store'), appRead: () => assert.fail('offline check read the store') });
+  assert.equal(offline.ok, true);
+  assert.match(offline.lines.join('\n'), /Shared-password admin is on/);
+  assert.doesNotMatch(offline.lines.join('\n'), /admin:create/);
+  const reachable = { fetcher: async () => Response.json({ session: 's', id: 'model' }), read: async () => {} };
+  const calls = [];
+  const live = await checkSetup({ env: hybrid, live: true, ...reachable,
+    ensureStore: async actual => { calls.push(['ensure', actual === hybrid]); },
+    appRead: async (sql, values, actual) => { calls.push([sql, actual === hybrid]); return []; } });
+  assert.deepEqual(calls, [['ensure', true], ['SELECT count(*) FROM "user"', true]], 'created and migrated first, then read');
+  assert.match(live.lines.join('\n'), /OK App database: reachable, created and migrated/);
+  const down = await checkSetup({ env: hybrid, live: true, ...reachable,
+    ensureStore: async () => { throw Object.assign(new Error('password authentication failed for private-embed'), { code: '28P01' }); }, appRead: async () => [] });
+  assert.equal(down.ok, false);
+  assert.match(down.lines.join('\n'), /FIX App database: unreachable or not writable/);
+  assert.equal(down.lines.join('\n').includes('private-'), false, 'no error text or token is printed');
+  // Production: the shared password, a session secret, a proxy header and the address people open.
+  const production = { ...hybrid, NODE_ENV: 'production', SESSION_SECRET: 'x'.repeat(32), AUTH_TRUSTED_IP_HEADER: 'x-real-ip' };
+  const noUrl = await checkSetup({ env: production });
+  assert.equal(noUrl.ok, false);
+  assert.match(noUrl.lines.join('\n'), /FIX Production accounts need APP_URL/);
+  assert.equal((await checkSetup({ env: { ...production, APP_URL: 'https://dives.example.com' } })).ok, true);
+  assert.equal((await checkSetup({ env: { ...production, VERCEL_PROJECT_PRODUCTION_URL: 'dives.example.com' } })).ok, true, 'Vercel is detected');
+  assert.equal((await checkSetup({ env: { ...production, APP_URL: 'https://dives.example.com', DEMO_PASSWORD: '' } })).ok, false, 'the shared password is still required');
+});

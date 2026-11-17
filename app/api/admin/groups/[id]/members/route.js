@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { NO_STORE, failure, requireAdmin, badBody } from '../../../../../../lib/admin-api.mjs';
+import { MOTHERDUCK_OFF, NO_STORE, failure, requireAdmin, badBody } from '../../../../../../lib/admin-api.mjs';
+import { sharedAdminAccounts } from '../../../../../../lib/auth.mjs';
 import { readJsonBody } from '../../../../../../lib/request-body.mjs';
 import { createGroupStore } from '../../../../../../lib/groups.mjs';
 import { createPeopleService } from '../../../../../../lib/people.mjs';
@@ -21,6 +22,8 @@ export async function PUT(request, { params }) {
   try {
     const group = await groups.get(groupId);
     if (!group || !(await appQuery('SELECT 1 AS found FROM "user" WHERE id = $1', [body.userId])).length) return failure('not_found', 404);
+    // A group with a service account (left from accounts mode) would give its MotherDuck identity.
+    if (group.serviceAccount && sharedAdminAccounts()) return failure(MOTHERDUCK_OFF, 409);
     if (group.serviceAccount) {
       const other = await groups.otherDataGroup(body.userId, groupId);
       if (other) return Response.json({ error: 'other_data_group', group: other }, { status: 409, headers: NO_STORE });

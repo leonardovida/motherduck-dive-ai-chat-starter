@@ -148,7 +148,7 @@ Each saved answer also keeps every statement sent to the Dive's database while a
 
 An answer keeps its first 60 statements. When there were more, `chat_message.queries_dropped` holds how many more, and the answer in **Conversations and SQL** says so.
 
-Statements saved before `started_at`, `tool`, `sent`, `truncated` and `executed_sql` were recorded have them empty (`NULL`), except that `executed_sql` equals `sql` for a statement without parameters. Run `npm run db:migrate` after upgrading to add the new columns.
+Statements saved before `started_at`, `tool`, `sent`, `truncated` and `executed_sql` were recorded have them empty (`NULL`), except that `executed_sql` equals `sql` for a statement without parameters. Run `npm run db:migrate` after upgrading to add the new columns; with a shared-password administrator the app updates the database itself on first use.
 
 ```sql
 -- Slowest and failing statements in the last 7 days
@@ -240,6 +240,59 @@ Below each answer the asker can choose **Helpful** or **Not helpful**. Pressing 
 **Past conversations** in the chat header lists the person's own saved conversations for the current Dive, newest first, with a search over their questions. Opening one restores it with its ratings, and a new question continues it. People can delete their own conversations there. They see only their own, never anyone else's.
 
 When someone presses **Stop**, the text streamed so far is kept and saved with the status `stopped`.
+
+## Shared-password admin (demos)
+
+`SHARED_PASSWORD_ADMIN=true` keeps the one shared password as a **built-in administrator** sign-in, and adds personal accounts next to it. Whoever signs in with the shared password gets the whole admin portal: **People** and **Groups** to create and manage accounts, **Conversations** (with the SQL sent to MotherDuck), **Questions**, **Models** and **Activity**, and the sidebar links to each. Use it when the person presenting the app should act as its administrator and invite others. Anyone with the shared password can create, change and delete accounts, so treat it like an administrator password: share it only with administrators, and give everyone else a personal account.
+
+**Signing in.** The sign-in page has a two-way switch: **Personal account** (username and password, plus single sign-on buttons when a provider is configured) and **Shared password** (the password field only). It opens on **Personal account**, so a person's own password is never sent to the shared-password sign-in by mistake. The browser remembers the last choice, so a presenter's browser opens on **Shared password**.
+
+**People the administrator adds** are ordinary accounts, exactly as in accounts mode: they are viewers unless made administrators, open the Dives and chat they are given directly or through their groups, see only their own past conversations, and count against their groups' monthly allowances. Add them one at a time or as a pasted list, with a one-time setup link (recommended) or a password you share yourself. An account can be made an administrator in **People**, and then signs in with its own username.
+
+What the shared-password administrator can do in the portal, and how:
+
+| Action | How it runs |
+| --- | --- |
+| Add people, setup links, disable and re-enable, Dive and chat access, groups and members | The same admin routes as accounts mode, which accept this administrator. Activity entries name it "Shared sign-in" followed by eight characters that identify the browser session, so two people using the shared password can be told apart. |
+| Make administrator or viewer, set a password, delete a person | Better Auth's admin endpoints need a personal session, which this administrator does not have. For this sign-in only, the app makes these three changes itself through Better Auth's internal adapter, with the same checks (the person exists, the role is viewer or administrator, passwords are 12 to 256 characters) and the same same-origin check. Setting a password still signs the person out everywhere and cancels unused setup links. |
+| Sign in as a person, other Better Auth admin endpoints | Refused. Use a personal administrator account. |
+| Sending the weekly digest from the portal | Not offered. The digest needs a schedule this mode does not set up. |
+
+**MotherDuck stays off for the whole mode**, for every administrator, personal administrator accounts included. Anyone with the shared password is an administrator, so this mode never changes MotherDuck grants or creates MotherDuck accounts:
+
+- The portal hides MotherDuck usernames, service accounts and the **MotherDuck access** tab.
+- The server refuses a MotherDuck username on a person and a service account on a group (`motherduck_off_with_shared_password`). Clearing an old MotherDuck username is allowed.
+- The access sync never runs and is never scheduled, and `/api/admin/access-sync` and the service-account route answer 404.
+- A group with a service account left from an earlier accounts-mode database cannot gain members, and saving it in the portal removes its service account. People already in it keep that group's access until an administrator removes them or turns the mode off. Grants already made in MotherDuck stay until accounts mode revokes them, or until they are revoked in MotherDuck.
+
+Use accounts mode (`MOTHERDUCK_APP_TOKEN` without `SHARED_PASSWORD_ADMIN`) for MotherDuck grants.
+
+**One identity per browser.** A browser holds either the shared-password sign-in or one personal session, never both:
+
+- Signing in with a personal account, by password or single sign-on, ends the shared-password sign-in in that browser.
+- Choosing a password from a setup link ends the shared-password sign-in in that browser, so an administrator who opens a link to try it is then signed in only as that person.
+- Signing in with the shared password ends any personal session in that browser, on the server as well. If that session cannot be ended, the sign-in is refused with "temporarily unavailable" and the person stays signed in.
+- If both cookies still arrive (for example, an old browser tab), the personal one decides, and nothing falls back to the administrator. A personal session that has ended, been disabled or cannot be read (including while the app database is unreachable) counts as signed out, never as the administrator. That person signs in again.
+- **Sign out** ends both, or neither: if the personal session cannot be ended, no cookie changes and the page says that signing out did not work.
+
+**Other details:**
+
+- **Limits.** The shared password keeps its failure limit per client; personal accounts keep Better Auth's limits and ten failed attempts per username in ten minutes.
+- **Setup links** made by the shared-password administrator work only while `SHARED_PASSWORD_ADMIN` is still on.
+- Better Auth endpoints the app does not use and that answer without a session (`/api/account/is-username-available`, and `/api/account/update-user` for editing one's own name) are refused in every mode, so nobody can check which usernames exist.
+- If the app database cannot be reached, the failure is remembered for 30 seconds: personal sign-in says it is temporarily unavailable at once instead of waiting for a connection timeout each time, and the next attempt after that tries again. The shared-password sign-in needs no database and keeps working.
+- Conversations are saved, including every SQL statement. Each shared-password sign-in sees only its own past conversations in the chat panel; each person sees their own; the admin portal shows all of them.
+- The store uses `MOTHERDUCK_APP_TOKEN` when set, otherwise `MOTHERDUCK_EMBED_TOKEN`. It creates `APP_DATABASE` and its tables, including the account tables, on first use, so there is no `npm run db:migrate` step. The first request that needs it, such as a personal sign-in or a saved chat answer, triggers it. `npm run admin:create` also works in this mode, for a personal administrator account.
+- Set `APP_URL` to the address people open (on Vercel the production domain is detected), because account sign-in only accepts requests from that origin, and setup links point there.
+- `CHAT_HISTORY=off` still stops saving. The daily scheduled run (`/api/cron/daily`) does not run in this mode, so `CHAT_RETENTION_DAYS` is not applied.
+- Without `SHARED_PASSWORD_ADMIN`, nothing changes: the shared password alone gives every Dive and no admin portal, and `MOTHERDUCK_APP_TOKEN` alone turns on accounts mode with no shared password.
+
+**After changing the shared password** (for example, when someone who knew it leaves), anyone who knew the old one may have used it as an administrator, and may still be signed in: a new `DEMO_PASSWORD` stops new sign-ins with the old one, but a shared-password sign-in lasts up to eight hours. Then:
+
+1. Change `SESSION_SECRET` in the same deployment to end every shared-password sign-in at once. This also signs out every personal account, which then signs in again.
+2. Open **People** and review who is an administrator. Make anyone who should not be one a viewer, and delete accounts nobody recognises.
+3. Revoke pending setup links. People with an unused link show "Invited · link expires ...". Choose **Disable** and then **Enable** for each one (disabling cancels unused links), or delete the person if the account should not exist, then send new links where they are still wanted.
+4. Read **Activity** for entries by "Shared sign-in" since the password was last changed, and check the people, groups and passwords they changed.
 
 ## Single sign-on
 

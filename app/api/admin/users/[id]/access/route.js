@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { NO_STORE, failure, requireAdmin, badBody } from '../../../../../../lib/admin-api.mjs';
+import { MOTHERDUCK_OFF, NO_STORE, failure, requireAdmin, badBody } from '../../../../../../lib/admin-api.mjs';
+import { sharedAdminAccounts } from '../../../../../../lib/auth.mjs';
 import { readJsonBody } from '../../../../../../lib/request-body.mjs';
 import { appQuery } from '../../../../../../lib/app-db.mjs';
 import { listDives } from '../../../../../../lib/dives.mjs';
@@ -25,6 +26,8 @@ export async function PATCH(request, { params }) {
   if (response) return response;
   let body;
   try { body = accessSchema.parse(await readJsonBody(request, 16384)); } catch (error) { return badBody(error, 'invalid_access'); }
+  // With the shared password nobody may link a person to a MotherDuck user; unlinking is fine.
+  if (body.motherduckUser && sharedAdminAccounts()) return failure(MOTHERDUCK_OFF, 400);
   const known = new Set(listDives().map(dive => dive.key));
   const dives = body.dives === '*' ? '*' : body.dives.filter(key => known.has(key));
   const id = (await params).id.slice(0, 64);

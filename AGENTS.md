@@ -29,7 +29,8 @@ Turn it on only when the user asks for per-person logins, an admin portal, SSO o
 3. For SSO, ask which identity provider the user wants. Give them the exact redirect URI (`<APP_URL>/api/account/callback/<provider id>`) to register, and the env names to add. Keep `AUTH_ALLOWED_EMAIL_DOMAINS` unset unless the user wants SSO to create accounts on first sign-in.
 4. For teams or customers, create groups in the admin portal ([Serve your customers](docs/accounts.md#serve-your-customers)). A group's MotherDuck service account, and `MOTHERDUCK_ADMIN_TOKEN` for the [access sync](docs/accounts.md#mirror-access-onto-motherduck), need the user's approval: the token belongs to an Admin who owns the shares, and the sync grants and revokes share access. Do not create service accounts, grants or tokens without that approval. Without the token, give the user the SQL from **MotherDuck access**.
 5. For a public demo, follow [Run a public demo](docs/accounts.md#run-a-public-demo). Turn on `PUBLIC_DEMO` only after the example people are in place.
-6. Saved conversations are on by default and announced in the chat panel. Tell the user, and ask whether they want `CHAT_HISTORY=off` or a `CHAT_RETENTION_DAYS` value.
+6. For a demo where the presenter administers the app with the shared password, follow [Shared-password admin](docs/accounts.md#shared-password-admin-demos) (`SHARED_PASSWORD_ADMIN=true`). Anyone with the shared password is an administrator, so confirm that with the user first. On first use the app creates `APP_DATABASE` with `MOTHERDUCK_APP_TOKEN`, or with `MOTHERDUCK_EMBED_TOKEN` when that is unset, so get approval for that database; `npm run db:migrate` and `npm run admin:create` are not needed.
+7. Saved conversations are on by default and announced in the chat panel. Tell the user, and ask whether they want `CHAT_HISTORY=off` or a `CHAT_RETENTION_DAYS` value.
 
 ## Models and routing
 

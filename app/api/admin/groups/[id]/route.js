@@ -1,4 +1,5 @@
-import { NO_STORE, failure, requireAdmin, badBody } from '../../../../../lib/admin-api.mjs';
+import { MOTHERDUCK_OFF, NO_STORE, failure, requireAdmin, badBody } from '../../../../../lib/admin-api.mjs';
+import { sharedAdminAccounts } from '../../../../../lib/auth.mjs';
 import { readJsonBody } from '../../../../../lib/request-body.mjs';
 import { createGroupStore } from '../../../../../lib/groups.mjs';
 import { cleanGroup, groupSchema } from '../../../../../lib/group-input.mjs';
@@ -13,6 +14,9 @@ export async function PATCH(request, { params }) {
   if (response) return response;
   let body;
   try { body = cleanGroup(groupSchema.parse(await readJsonBody(request, 32768))); } catch (error) { return badBody(error, 'invalid_group'); }
+  // With the shared password no group gets a MotherDuck service account (cleanGroup keeps database
+  // overrides only beside one).
+  if (body.serviceAccount && sharedAdminAccounts()) return failure(MOTHERDUCK_OFF, 400);
   const id = (await params).id.slice(0, 64);
   const groups = createGroupStore();
   try {
